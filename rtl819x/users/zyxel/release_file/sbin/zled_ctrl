@@ -1,0 +1,129 @@
+#!/bin/sh
+# Zyxel LED control script for WSR30
+
+DEVPATH="/sys/bus/i2c/devices/0-0032"
+LED_PATTERN=${DEVPATH}/led_pattern
+LED_PATH="/sys/class/leds"
+LEDS="D1 D2 D7 D3 D4 D8 D5 D6 D9"
+LOCKFILE="/tmp/zxel-led-ctrl.9f8f5819-9122-4b11-aef1-c888a79ad8c7"
+
+usage() {
+  echo "usage: $0 [pattern] [level]"
+  echo "       available patterns: "
+  echo "           led_all_on, led_all_off,"
+  echo "           ble_ready, ble_configuring, ble_configure_complete, ble_error,"
+  echo "           system_init, system_ready, system_error, system_reboot,"
+  echo "           firmware_upgrade, factory_reset,"
+  echo "           backhaul_disconnect, backhaul_connected, backhaul_sync_complete,"
+  echo "           internet_connecting, internet_connected, internet_disconnect, configure_apply, configure_complete"
+  echo "       [level]: only for system_ready."
+}
+
+leds_current_init() {
+  val=${1:-223}
+  cur=$val
+  for D in ${LEDS}
+  do
+    val=${1:-${cur}}
+    echo ${val} > ${LED_PATH}/${D}/led_current
+    shift
+  done
+}
+
+leds_brightness_init() {
+  val=${1:-0}
+  for D in ${LEDS}
+  do
+    echo ${val} > ${LED_PATH}/${D}/brightness
+  done
+}
+
+leds_off() {
+  echo 0 > ${LED_PATTERN}
+
+  if [ -n "$1" ]; then
+    leds_current_init
+    leds_brightness_init
+  fi
+}
+
+leds_on() {
+  echo 0 > ${LED_PATTERN}
+  leds_current_init
+  leds_brightness_init 255
+}
+
+pattern=${1:-usage}
+level=${2:-0}
+
+case ${pattern} in
+  led_all_on)
+    leds_on
+    ;;
+  led_all_off)
+    leds_off 1
+    ;;
+  system_init)
+  # 9: white blinking
+    leds_off
+    leds_current_init
+    echo 9 > ${LED_PATTERN}
+    ;;
+  ble_ready|backhaul_sync_complete|configure_complete)
+  # 10: blue rotate
+    leds_off
+    leds_current_init 255 255 255 255 255 255 255 30
+    echo 10 > ${LED_PATTERN}
+    ;;
+  ble_configuring|ble_configure_complete|backhaul_connected|internet_connecting|configure_apply)
+  # 11: blue blinking
+    leds_off
+    leds_current_init 255 255 255 255 255 255 255 30
+    echo 11 > ${LED_PATTERN}
+    ;;
+  firmware_upgrade)
+  # 12: amber blinking
+    leds_off
+    leds_current_init 255 60 255 255 50 255 255 40
+    echo 12 > ${LED_PATTERN}
+    ;;
+  system_reboot|factory_reset)
+  # 13: amber fast blinking
+    leds_off
+    leds_current_init 255 50 255 255 40 255 255 35
+    echo 13 > ${LED_PATTERN}
+    ;;
+  system_ready|internet_connected)
+  # 14: pink&blue rotate
+    leds_off
+    case ${level} in
+      2)
+        leds_current_init 16
+        ;;
+      1)
+        leds_current_init 64
+        ;;
+      *)
+        leds_current_init 255
+        ;;
+    esac
+    echo 14 > ${LED_PATTERN}
+    ;;
+  wps)
+  # 15: pink blinking
+    leds_off
+    leds_current_init 100 255 255 70 255 255 80 255 255
+    echo 15 > ${LED_PATTERN}
+    ;;
+  ble_error|system_error|backhaul_disconnect|internet_disconnect)
+  # 16: red solid
+    leds_off
+    leds_current_init 255
+    echo 16 > ${LED_PATTERN}
+    ;;
+  *)
+    usage
+    ;;
+esac
+
+exit 0

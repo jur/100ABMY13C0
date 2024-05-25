@@ -1,0 +1,28 @@
+#!/bin/sh
+
+#RootAP only
+role=$(uci get system.main.operation_role)
+#Router only
+mode=$(flash get OP_MODE|awk -F '=' '{print $2}')
+
+if [ "$mode" == "0" -a "$role" == "controller" ]; then
+
+  #Main dhcp pool
+  main_pid=$(ps | grep "dnsmasq -u root -C /tmp/dnsmasq.conf" | grep -v "grep" | awk '{print $1}')
+
+  if [ -z $main_pid ]; then
+    /etc/init.d/dnsmasq start
+  fi
+
+  #Guest WiFi
+  guestDisable=$(uci get wireless.5GguestA1.disable)
+  if [ "$guestDisable" == "0" ]; then
+    guest_pid=$(ps | grep "dnsmasq -C /tmp/dnsmasq_guest_lan.conf" | grep -v "grep" | awk '{print $1}')
+    echo "Guest dnsmasq PID: $guest_pid"
+
+    if [ -z $guest_pid ]; then
+      /usr/sbin/dnsmasq_guest_lan "START"
+    fi
+  fi
+
+fi

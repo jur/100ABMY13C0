@@ -1,0 +1,29 @@
+--- net/batman-adv/bat_v_elp.c	2018-04-19 14:10:44.335717565 +0800
++++ net/batman-adv/bat_v_elp.c	2018-04-19 14:05:44.347718198 +0800
+@@ -84,7 +84,7 @@
+  u8 *addr,
+  struct wifi_mesh_node *node)
+ {
+-	int     retval, found=0;
++	int     retval, _retval, found=0;
+ 	struct wifi_mesh_node   *tmp;
+ #if	0//take it off
+ 	node->metric=calculate_metric;
+@@ -111,6 +111,8 @@
+ 
+ #if	1	// link rate
+ 	retval=batadv_get_wifi_link_rate(realdev, addr);
++	_retval=(retval*6)/10;
++	//printk(KERN_ERR "[B@TMAN] rate %d => %d \n", retval, _retval);
+ #else	// metric
+ 	#if	0
+ 	/* grab mesh node info */
+@@ -164,7 +166,7 @@
+ 		node->orig[0], node->orig[1], node->orig[2], 
+ 		node->orig[3], node->orig[4], node->orig[5]);*/
+ RETN:
+-	return	retval;
++	return	_retval;
+ }
+ #endif	//WSR30_RTL8192C
+ 

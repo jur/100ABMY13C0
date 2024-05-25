@@ -1,0 +1,74 @@
+diff -uNr batman-adv-2018.3/net/batman-adv/fast_batman.c batman-adv-2018.3/net/batman-adv/fast_batman.c
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-09-18 11:05:17.973851330 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-09-27 11:05:54.922526055 +0800
+@@ -1027,6 +1028,7 @@
+ 	int		pass=0;
+ 	struct	vlan_ethhdr	*vhdr;
+ 	struct	ethhdr		*ethhdr=eth_hdr(skb);
++	FAST_LOCAL	*local;
+ 
+ 	*vlan=0;
+ 	*batman=0;
+@@ -1050,29 +1052,39 @@
+ 		} */else {
+ 			FASTBAT_DBG_MSG(" Err! No batman header!\n");
+ 		}
+-	} else if(is_broadcast_ether_addr(ethhdr->h_dest) && (ethhdr->h_proto==ETH_P_IP)) {
++//	} else if(is_broadcast_ether_addr(ethhdr->h_dest) && (ethhdr->h_proto==ETH_P_IP)) {
+ 		/* find out dhcp request and then verdict dev idx */
+-		u8				*check;
+-		FAST_LOCAL		*local;
+-		struct iphdr	*iphdr;
++//		u8				*check;
++		//FAST_LOCAL		*local;
++//		struct iphdr	*iphdr;
+ 
+-		iphdr=(struct iphdr *)(ethhdr+1);
+-		check=(u8 *)ethhdr + ETH_HLEN + iphdr->ihl*4;
++//		iphdr=(struct iphdr *)(ethhdr+1);
++//		check=(u8 *)ethhdr + ETH_HLEN + iphdr->ihl*4;
+ 		/* len of ethernet II + ipv4 header => 14 + 20
+ 		 * source/dest port: 68/67
+ 		 */
+-		if((iphdr->protocol==17) && (*(check+1)==0x44) && (*(check+3)==0x43)) {
++//		if((iphdr->protocol==17) && (*(check+1)==0x44) && (*(check+3)==0x43)) {
+ 			/* check if local's existed and delete it */
+-			local=fastbat_local_search(ethhdr->h_source);
+-			if(local!=NULL && local->iif!=skb->skb_iif) {
+-				FASTBAT_DBG_MSG("[F@STBAT] DHCP REQUEST incomes ...\n");
+-				fastbat_del_local_entry(local);
+-			}
+-		}
++//			local=fastbat_local_search(ethhdr->h_source);
++//			if(local!=NULL && local->iif!=skb->skb_iif) {
++//				FASTBAT_DBG_MSG("[F@STBAT] DHCP REQUEST incomes ...\n");
++//				fastbat_del_local_entry(local);
++//			}
++//		}
+ 	}
+ 	if(pass)
+ 		goto	RETN;
+ 
++	/* if pc is behind switch and change the port of switch with multy
++	 * filter this and delete the local record
++	 * multy <--> switch <--> pc
++	 */
++	local=fastbat_local_search(ethhdr->h_source);
++	if(local && local->iif != skb->skb_iif) {
++		FASTBAT_DBG_MSG(" dev(%s) local:%d VS this:%d\n", skb->dev->name, local->iif, skb->iif);
++		fastbat_del_local_entry(local);
++		goto	RETN;
++	}
+ 	/* verdict mac addr */
+ 	pass=fastbat_verdict_phyaddr(ethhdr->h_dest);	//dont filter real dest mac???
+ RETN:
+@@ -1949,7 +1964,7 @@
+  int iif)
+ {
+ 	FAST_LOCAL	*local;
+-	/* update global dev idx from skb_iif */
++	/* update global dev idx from this skb's skb_iif */
+ 	global->iif=iif;
+ 
+ 	/* delete local entry */
+

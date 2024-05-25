@@ -1,0 +1,43 @@
+#!/bin/sh
+# udhcpc bound script
+RESOLV_CONF="/var/udhcpc/resolv.conf"
+
+[ -n "$broadcast" ] && BROADCAST="broadcast $broadcast"
+[ -n "$subnet" ] && NETMASK="netmask $subnet"
+
+cp /var/wan_ip /var/wan_ip.orig
+
+echo " "
+echo "************"
+echo "$interface $ip $router $dns"
+echo "************"
+
+ifconfig $interface $ip $BROADCAST $NETMASK
+
+echo "$ip" > /var/wan_ip
+if [ "$router" ]; then
+        for i in $router
+        do
+                route add -net default gw $i dev $interface
+        done
+fi
+
+if [ $? = 0 ]; then
+echo "WAN setting is OK."
+fi
+
+[ -f "$RESOLV_CONF" ] && rm $RESOLV_CONF
+
+for i in $dns
+do
+        echo nameserver $i >> $RESOLV_CONF
+done
+
+cp $RESOLV_CONF /var/resolv.conf
+
+touch /var/wan_IP_trigger
+if [ "$(cat /var/wan_ip)" != "$(cat /var/wan_ip.orig)" ]; then
+    /usr/sbin/zyxel_event_trigger eth1 UP
+else
+    echo "Same IP address acquired, no reload necessary"
+fi

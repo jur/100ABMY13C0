@@ -1,0 +1,54 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-29 10:21:00.931106486 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-29 10:47:32.637117439 +0800
+@@ -77,6 +77,7 @@
+ #endif
+ static void	fastbat_del_local_entry(FAST_LOCAL *);
+ static void	fastbat_show_local_entry(void);
++static void fastbat_local_add_check_global_and_setup_dirty(u8 *addr);
+ 
+ /* sysctl variable to turn on/off fastbat dynamically */
+ extern int fastmesh_enable;
+@@ -456,6 +457,7 @@
+ 	if(vlan)
+ 		local->vlan=vlan;
+ #endif
++	fastbat_local_add_check_global_and_setup_dirty(local->dst);
+ 	list_add(local, &fastbat_local_head);
+ RETN:
+ 	return		retval;
+@@ -1494,6 +1496,33 @@
+ 	}
+ }
+ 
++void    fastbat_local_add_check_global_and_setup_dirty
++(u8 *addr)
++{
++	FAST_BAT    *bat;
++	u32         idx=0;
++	int         dirty=0;
++
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] setup dirty (o)%pM\n", addr);
++	for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		hlist_for_each_entry(bat, &bats[idx], list) {
++			if(bat->dirty)
++				continue;
++#if !defined(COLLECT_ORIG_OR_NEIGH)
++			if(!memcmp(addr, bat->dst, ETH_ALEN)) {
++#else       
++			if(!memcmp(addr, bat->dst, ETH_ALEN-1)) {
++#endif          
++				bat->dirty=1;
++				dirty=1;
++				FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
++			}
++		}
++	}
++	if(dirty)
++		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++}
++
+ void	fastbat_check_disconnect_neighbor_and_setup_dirty
+ (u8 *addr)
+ {
+
+

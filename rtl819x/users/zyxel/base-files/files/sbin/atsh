@@ -1,0 +1,44 @@
+#!/bin/sh
+
+fw_version=$(grep "LD Version" /etc/zyxel_prj_info |awk -F": " '{print $2}')
+fw_project_name=$(grep "Project Name" /etc/zyxel_prj_info |awk -F": " '{print $2}')
+fw_project_model=$(grep "Project Model" /etc/zyxel_prj_info |awk -F": " '{print $2}')
+gui_ver=$(grep "GUI Version" /etc/zyxel_prj_info |awk -F": " '{print $2}')
+serial_num=$(flash get CUSTOMER_HW_DEVICE_SN |awk -F"=" '{print $2}' |sed 's/"//g')
+box_num=$(flash get CUSTOMER_HW_BOXID |awk -F"=" '{print $2}' |sed 's/"//g')
+part_num=$(flash get CUSTOMER_HW_PARTNO |awk -F"=" '{print $2}' |sed 's/"//g')
+lan_mac_num=$(flash get HW_NIC0_ADDR |awk -F"=" '{print $2}')
+wan_mac_num=$(flash get HW_NIC1_ADDR |awk -F"=" '{print $2}')
+wifi5g_0_mac_num=$(flash get HW_WLAN0_WLAN_ADDR |awk -F"=" '{print $2}')
+wifi5g_1_mac_num=$(flash get HW_WLAN1_WLAN_ADDR |awk -F"=" '{print $2}')
+wifi24g_mac_num=$(flash get HW_WLAN2_WLAN_ADDR |awk -F"=" '{print $2}')
+bt_mac_num=$(flash get BLUETOOTH_HW_BT_ADDR |awk -F"=" '{print $2}')
+wlan0_reg_domain=$(flash get HW_WLAN0_REG_DOMAIN |awk -F"=" '{print $2}')
+wlan1_reg_domain=$(flash get HW_WLAN1_REG_DOMAIN |awk -F"=" '{print $2}')
+wlan2_reg_domain=$(flash get HW_WLAN2_REG_DOMAIN |awk -F"=" '{print $2}')
+if [ "$wlan2_reg_domain" = "1" ]; then
+	countrycode=FF
+elif [ "$wlan2_reg_domain" = "3" ]; then
+	countrycode=E1
+else
+	countrycode=$wlan2_reg_domain
+fi
+
+printf "LD   Version                 : $fw_version\n"
+printf "Project Name                 : $fw_project_name\n"
+printf "Product Model                : $fw_project_model\n"
+# printf "GUI Version                  : $gui_ver\n"
+printf "Serial Number                : $serial_num\n"
+printf "First MAC Address            : $lan_mac_num\n"
+printf "LAN MAC Address              : $lan_mac_num\n"
+printf "WAN MAC Address              : $wan_mac_num\n"
+printf "5G_0 MAC Address             : $wifi5g_0_mac_num\n"
+printf "5G_1 MAC Address             : $wifi5g_1_mac_num\n"
+printf "2.4G MAC Address             : $wifi24g_mac_num\n"
+printf "Bluetooth MAC Address        : $bt_mac_num\n"
+printf "Default Country Code         : $countrycode\n"
+printf "WLAN0 Reg Domain             : $wlan0_reg_domain\n"
+printf "WLAN1 Reg Domain             : $wlan1_reg_domain\n"
+printf "WLAN2 Reg Domain             : $wlan2_reg_domain\n"
+printf "Box ID                       : $box_num\n"
+printf "Part NO                      : $part_num\n"

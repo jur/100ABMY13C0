@@ -1,0 +1,267 @@
+#!/bin/sh
+. /sbin/jshn.sh
+local TZ=""
+local TZ_time=""
+lock /tmp/.time_daemon.lock
+#rms request info
+atsh=$(atsh)
+model_name=$(echo "$atsh" | grep 'Product Model' | awk '{print $4}')
+fw_version=$(echo "$atsh" | grep 'LD   Version' | awk '{print $4}')
+mac_address=$(echo "$atsh" | grep 'First MAC Address' | awk '{print $5}')
+serial_num=$(echo "$atsh" | grep 'Serial Number' | awk '{print $4}')
+timezone_response_json="" #cross function
+
+daemon_exit() {
+  lock -u /tmp/.time_daemon.lock
+  exit
+}
+
+sync_time() {
+  ntp_process=$(ps | grep ntpclient | grep -v grep)
+  if [ -n "$ntp_process" ]; then
+    killall ntpclient-2007
+  fi
+
+  mten_ServiceType=$(uci get time.main.mode)
+  if [ "$mten_ServiceType" = "manual" ]; then
+    mtenNew_Year=$(uci get time.main.manual_year)
+    mtenNew_Mon=$(uci get time.main.manual_mon)
+    mtenNew_Day=$(uci get time.main.manual_day)
+    mtenNew_Hour=$(uci get time.main.manual_hour)
+    mtenNew_Min=$(uci get time.main.manual_min)
+    mtenNew_Sec=$(uci get time.main.manual_sec)
+    /bin/date $mtenNew_Year.$mtenNew_Mon.$mtenNew_Day-$mtenNew_Hour:$mtenNew_Min:$mtenNew_Sec
+
+    #if parental and Daylight saving are enable, then reset status of TimeZone_status
+    rm /tmp/TimeZone_status
+    rm /tmp/Daylight_saving_Time
+
+  elif [ "$mten_ServiceType" = "NTP" ]; then
+    not_sync_min=$(date | awk '{print $4}' |  cut -f2 -d':')
+    chk_year
+    chk_min "$not_sync_min"
+    #ntp_name=$(uci get time.main.ntpName)
+  	#COUNT=0
+  	#INTERVAL=600
+  	#PORT=$(uci get ntpclient.ntpserver.port)
+  	#bin/ntpclient-2007 -c $COUNT -i $INTERVAL -s -l -h $ntp_name &
+  	#sleep 2
+  fi
+
+  #fix Timezone issue.
+  /bin/date -k
+}
+chk_timezone() {
+  auto_timezone_enable=$(uci get time.main.auto_timezone_enable)
+  auto_timezone_override=$(uci get time.main.auto_timezone_override)
+  ## For WSQ50, before version 3C0, timezone is manually set. 3C0 will force doing auto timezone.
+  ## If "auto_timezone_override" is set to 1, auto timezone will follow regular configuration
+  if [ "$auto_timezone_enable" = "1" ] || [ "$auto_timezone_override" != "1" ]; then
+      ##retry rms for 5 times avoid rms fail because can't connect internet
+      for i in "" 1 2 3 4
+      do
+        rms-cli -r "/v1/mycloud/$model_name/timezone" -f "fw_version=$fw_version&mac_address=$mac_address&serial_number=$serial_num" -o /tmp/timezone_response
+        timezone_response_json=$(cat /tmp/timezone_response)
+        rm -f /tmp/timezone_response
+        if [ -z "$timezone_response_json" ]; then
+          rm -f /tmp/timezone_response.error
+          if [ $i = 4 ]; then
+            echo "timezone response failed from rms." > /dev/console
+            daemon_exit
+          fi
+          sleep 3
+        else
+          break
+        fi
+      done
+    json_load "$timezone_response_json"
+    json_get_var region timezone
+    timezone=$(tz_parser $region)
+  else
+    timezone=$(uci get time.main.timezone)
+  fi
+
+  runing_TZ=$(cat /var/TZ)
+  if [ "$timezone" = "$runing_TZ" ]; then
+    chk_timezone_retval=0 # same timezone
+    touch /tmp/autotimezone_success.flag
+  else
+    chk_timezone_retval=1 # not the same
+  fi
+}
+
+sync_timezone(){
+  auto_timezone_enable=$(uci get time.main.auto_timezone_enable)
+  auto_timezone_override=$(uci get time.main.auto_timezone_override)
+  ## For WSQ50, before version 3C0, timezone is manually set. 3C0 will force doing auto timezone.
+  ## If "auto_timezone_override" is set to 1, auto timezone will follow regular configuration
+  if [ "$auto_timezone_enable" = "1" ] || [ "$auto_timezone_override" != "1" ]; then
+    timezone_setting_from_rms
+  else
+    #manually set timezone. just get time.main.timezone value
+    :
+  fi
+
+  TZ_time=$(uci get time.main.timezone)
+  if [ -z "$TZ_time" ]; then
+    TZ_time="UTC"
+  fi
+
+  echo $TZ_time > /var/TZ
+  /bin/date -k
+
+  #wifi_scheduling24G=$(uci get wifi_schedule.schedule.enabled)
+  #wifi_scheduling5G=$(uci get wifi_schedule5G.schedule.enabled)
+
+ # if [ "$wifi_scheduling24G" = "enable" ]; then
+  #  /etc/init.d/wifi_scheduling start
+  #fi
+
+  #if [ "$wifi_scheduling5G" = "enable" ]; then
+   # /etc/init.d/wifi_scheduling5G start
+ # fi
+}
+
+timezone_setting_from_rms() {
+  # check tzdata version
+  for i in "" 1 2 3 4
+  do
+    rms-cli -r "/v1/mycloud/$model_name/tzdata" -f "fw_version=$fw_version&mac_address=$mac_address&serial_number=$serial_num" -o /tmp/tzdata_response
+    tzdata_response_json=$(cat /tmp/tzdata_response)
+    rm -f /tmp/tzdata_response
+    if [ -z "$tzdata_response_json" ]; then
+      rm -f /tmp/tzdata_response.error
+      if [ $i = 4 ]; then
+        echo "tzdata response failed from rms." > /dev/console
+        daemon_exit
+      fi
+      sleep 3
+    else
+      break
+    fi
+  done
+
+  json_load "$tzdata_response_json"
+  json_get_var rms_tzversion version
+
+  tzdata_version=$(uci get time.main.tzdata_version)
+  if [ "$rms_tzversion" != "$tzdata_version" ]; then
+    #update tzdata
+    json_get_var url url
+    curl -sk "$url" > /tmp/tzdb-install.tar.gz
+    tar -zx -f /tmp/tzdb-install.tar.gz -C /tmp/
+
+    if [ -f /tmp/tzdb-install/usr/share/zoneinfo/"$region" ]; then # 'region' value from chk_timezone()
+      rm -rf tmp/zoneinfo
+      mv /tmp/tzdb-install/usr/share/zoneinfo /tmp/zoneinfo
+      rm -rf /tmp/tzdb-install
+      rm -f /tmp/tzdb-install.tar.gz
+      update_tzdata="success"
+      /bin/sync
+    else # download or tar failed
+      update_tzdata="fail"
+      echo "update tzdata failed"
+      if [ ! -f /usr/share/zoneinfo/"$region" ]; then # old version tzdata is not exist
+        set_default_timezone
+        daemon_exit
+      fi
+    fi
+  fi
+
+  timezone=$(tz_parser $region)
+  if [ -n "$timezone" ]; then # parser success
+    uci set time.main.auto_timezone="$timezone"
+    uci set time.main.timezone="$timezone"
+    uci set time.main.city="($timezone)"
+    uci set time.main.tzIndex="63"
+    if [ -n "$update_tzdata" ] && [ "$update_tzdata" = "success" ]; then
+      uci set time.main.tzdata_version="$rms_tzversion"
+    fi
+    uci commit time
+
+    uci set system.main.timezone="$timezone"
+    uci commit system
+    touch /tmp/autotimezone_success.flag
+    /bin/sync
+  else
+    uci set time.main.tzdata_version=""
+    uci commit time
+    echo "Auto timezone failed"
+  fi
+}
+
+chk_year(){
+  # domain="$count.pool.ntp.org"
+  domain="pool.ntp.org"
+  COUNT=0
+  INTERVAL=600
+  #PORT=$(uci get ntpclient.ntpserver.port)
+
+  for count in 0 1 2 3
+  do
+    ntp_process=$(ps | grep ntpclient | grep -v grep)
+    if [ -n "$ntp_process" ]; then
+      killall -9 ntpclient-2007
+    fi
+    bin/ntpclient-2007 -c $COUNT -i $INTERVAL -s -l -h $domain &
+
+    year=$(date | awk '{print $6}')
+    if [ "$year" = "1970" ]; then
+      sleep 2
+    else
+      break
+    fi
+  done
+}
+
+chk_min(){
+  # domain="$count.pool.ntp.org"
+  domain="pool.ntp.org"
+  NTPC=$(which ntpclient)
+  COUNT=0
+  INTERVAL=600
+  #PORT=$(uci get ntpclient.ntpserver.port)
+
+  # retry three times to sync time
+  orinig_min="$1"
+  for count in 0 1 2
+  do
+    ntp_process=$(ps | grep ntpclient | grep -v grep)
+    if [ -n "$ntp_process" ]; then
+      killall -9 ntpclient-2007
+    fi
+    bin/ntpclient-2007 -c $COUNT -i $INTERVAL -s -l -h $domain &
+    sleep 2
+
+    revise_minutes=$(date | awk '{print $4}' |  cut -f2 -d':')
+    if [ -n "$revise_minutes_2" ];	then
+      if [ "$orinig_min" != "$revise_minutes" ] && [ "$revise_minutes" = "$revise_minutes_2" ]; then
+        break
+      fi
+    fi
+    revise_minutes_2="$revise_minutes"
+  done
+}
+
+set_default_timezone() {
+  uci set time.main.auto_timezone="UTC"
+  uci set time.main.timezone="UTC"
+  uci set time.main.city="(UTC)"
+  uci set time.main.tzIndex="63"
+  uci commit time
+
+  uci set system.main.timezone="UTC"
+  uci commit system
+  /bin/sync
+}
+
+sync_time
+chk_timezone # NOTE: if used $(chk_timezone) type, it can't set value to global variable.
+if [ "$chk_timezone_retval" = "0" ]; then # 0 is same
+  # because of same time zone. we don't sync timezone.
+  :
+else
+  sync_timezone
+fi
+
+daemon_exit

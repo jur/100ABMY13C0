@@ -1,0 +1,104 @@
+#!/bin/sh
+
+echo "Zyxel Upgrade default cfg"
+
+previousValue=$(uci get system.led.notify_period)
+#Old default LED notify period value is 60
+if [ -z $previousValue ] || [ "$previousValue" == "60" ]; then
+  uci set system.led.notify_period=180
+  uci commit system
+fi
+
+#Introducing cfg version control, but not use it for now.
+currentCfgVersion=$(uci get system.main.cfgVersion)
+
+if [ -z $currentCfgVersion ]; then
+  currentCfgVersion=0;
+fi
+
+if [ $currentCfgVersion -le 0 ]; then
+  #Upgrade default value put here
+  uci set network.wan.IP_version=Dual_Stack
+  uci commit network
+  #Here need to update the cfgVersion
+  uci set system.main.cfgVersion=1
+  uci commit system
+fi
+
+# Cfg version 2: New feature for support led brightness dimming
+if [ $currentCfgVersion -le 1 ]; then
+  preLedBrightness=$(uci get system.led.level)
+  if [ -z $preLedBrightness ]; then
+    uci set system.led.level=0
+  fi
+  #Here need to update the cfgVersion
+  uci set system.main.cfgVersion=2
+  uci commit system
+fi
+
+# Cfg version 3: upgrade new parameter for ap_steer
+if [ $currentCfgVersion -le 2 ]; then
+  re_value=$(uci get ap_steer.rssi_threshold.RE_Threshold_Adjustment 2> /dev/null)
+  if [ "$re_value" == "0" ]; then
+    uci set ap_steer.rssi_threshold.RE_Threshold_Adjustment=7
+  fi
+  mesh_th_diff=$(uci get ap_steer.rssi_threshold.Min_Mesh_Throughput_Difference 2> /dev/null)
+  if [ -z $mesh_th_diff ];  then
+    uci set ap_steer.rssi_threshold.Min_Mesh_Throughput_Difference=70
+  fi
+
+  mesh_grade_diff=$(uci get ap_steer.rssi_threshold.Grade_Mesh_Throughput_Threshold 2> /dev/null)
+  if [ -z $mesh_grade_diff ];  then
+    uci set ap_steer.rssi_threshold.Grade_Mesh_Throughput_Threshold=300
+  fi
+  uci commit ap_steer
+
+  if [ -z $(uci get wireless.wlan0.mesh_rssi_th 2> /dev/null) ]; then
+    uci set wireless.wlan0.mesh_rssi_th=20
+  fi
+
+  if [ -z $(uci get wireless.wlan1.mesh_rssi_th 2> /dev/null) ]; then
+    uci set wireless.wlan1.mesh_rssi_th=22
+  fi
+  uci commit wireless
+
+  #Here need to update the cfgVersion
+  uci set system.main.cfgVersion=3
+  uci commit system
+
+  if [ ! -f "/config/uci/ucitrack" ] && [ -f "/etc/uci_defconfig/ucitrack" ] ; then
+	cp /etc/uci_defconfig/ucitrack /config/uci/ucitrack
+  fi
+fi
+
+# Cfg version 4: upgrade new parameter for notification
+if [ $currentCfgVersion -le 3 ]; then
+  
+  new_client_notify=$(uci get notification.newDevConn.enable 2> /dev/null)
+  if [ "$new_client_notify" == "" ] || [ "$new_client_notify" == "0" ]; then
+    uci set notification.newDevConn.enable=1
+    uci set notification.5GmainA.enable=1
+    uci set notification.24Gmain.enable=1
+    uci commit notification
+  fi
+
+  #Here need to update the cfgVersion
+  uci set system.main.cfgVersion=4
+  uci commit system
+fi
+
+# Cfg version 5: upgrade for parameter inconsistence
+if [ $currentCfgVersion -le 4 ]; then
+
+  host_name=$(uci get system.main.product_type_name 2> /dev/null)
+  if [ "$host_name" == "" ]; then
+    orig_name=$(uci get system.main.rootAP_name 2> /dev/null)
+    uci set system.main.product_type_name=$orig_name
+  fi
+
+  #Here need to update the cfgVersion
+  uci set system.main.cfgVersion=5
+  uci commit system
+fi
+
+echo "Zyxel Upgrade default cfg.....DONE"

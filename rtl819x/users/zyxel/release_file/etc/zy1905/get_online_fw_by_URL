@@ -1,0 +1,58 @@
+#!/bin/sh
+
+SERVER=$1
+SAVE_FILE=$2
+FLAG_COPY=$3
+
+ROOTFS=/tmp/fw.bin
+CHECK_DOWNLOAD=/tmp/zy1905/Flag_download
+
+echo "1" > $CHECK_DOWNLOAD
+
+CheckInitial=`uci get system.main.install_mode`
+if [ "$CheckInitial" == "0" ] ; then
+	echo "5" > $CHECK_DOWNLOAD
+	echo "[zy1905 get_online_fw_by_URL] Not init, not to download"
+	/usr/sbin/FWupgradelog.sh "[zy1905 get_online_fw_by_URL] Not init, not to download"
+	/etc/zy1905/Output_log.sh "[zy1905 get_online_fw_by_URL] Not init, not to download"
+        echo "fail" > /tmp/get_online_fw
+	exit 0
+fi
+
+if [ $SAVE_FILE != "NULL" ]; then
+	ROOTFS=$SAVE_FILE
+fi
+
+/usr/sbin/FWupgradelog.sh "[zy1905 get_online_fw_by_URL] SERVER=$1"
+/etc/zy1905/Output_log.sh "[zy1905 get_online_fw_by_URL]  SERVER=$1"
+
+if [ -f $ROOTFS ]; then
+        rm -f $ROOTFS
+fi
+
+# doenload FW file
+wget $SERVER -O $ROOTFS -T 60 || rm -f $ROOTFS
+
+
+# result to file
+if [ ! -f $ROOTFS ]; then
+	/usr/sbin/FWupgradelog.sh "[zy1905 get_online_fw_by_URL] download fail"
+	/etc/zy1905/Output_log.sh "[zy1905 get_online_fw_by_URL] download fail"
+
+	rm -f $CHECK_DOWNLOAD
+        echo "fail" > /tmp/get_online_fw
+	rm -f /tmp/zy1905/FWupgrade_StartTime
+else
+	/usr/sbin/FWupgradelog.sh "[zy1905 get_online_fw_by_URL] download success"
+	/etc/zy1905/Output_log.sh "[zy1905 get_online_fw_by_URL] download success"
+	if [ $FLAG_COPY == "1" ]; then
+		mkdir -p /tmp/wsr/FWFile/
+		cp $ROOTFS /tmp/wsr/FWFile/
+		sync
+		sleep 1
+	fi
+	rm -f $CHECK_DOWNLOAD
+        echo "success" > /tmp/get_online_fw
+fi
+
+exit

@@ -1,0 +1,42 @@
+#!/bin/sh
+
+input=$1
+
+FILE=tmp/ApplicationData/home/ftp
+Monitorpid=
+
+if [ "$input" = "On" ] ; then
+	# LINK_FILE=$2
+	# rm -rf /application/home/ftp
+
+	# mkdir -p $LINK_FILE
+	# mkdir -p /application/home/
+
+	# if [ ! -d $FILE ]; then
+	# 	echo "build vstftp symblink"
+	# 	ln -s $LINK_FILE /application/home/ftp
+	# fi
+
+	# mkdir -m 0755 -p /var/run/vsftpd
+
+	Monitorpid=$(ps | grep "/var/config/vsftpd.conf" | grep "grep" -v | awk '{print $1}')
+
+	if [ "$Monitorpid" == "" ] ; then
+		echo "start vsftpd..."
+		cp /etc/vsftpd.conf /var/config/vsftpd.conf
+		vsftpd /var/config/vsftpd.conf &
+		sleep 2
+	fi
+fi
+
+if [ "$input" = "Off" ] ; then
+	Monitorpid=$(ps | grep "/var/config/vsftpd.conf" | grep "grep" -v | awk '{print $1}')
+
+	if [ "$Monitorpid" != "" ] ; then
+		echo "stop vsftpd..."
+		killall -9 vsftpd
+	fi
+	# rm -rf /home/*
+	# echo "not doing anything..."
+fi
+

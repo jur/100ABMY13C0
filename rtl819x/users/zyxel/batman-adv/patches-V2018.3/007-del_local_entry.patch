@@ -1,0 +1,36 @@
+--- batman-adv-2018.3/net/batman-adv/translation-table.c	2018-11-08 11:36:19.710686745 +0800
++++ batman-adv-2018.3/net/batman-adv/translation-table.c	2018-11-08 13:52:52.906669437 +0800
+@@ -235,6 +235,11 @@
+ 	kmem_cache_free(batadv_tl_cache, tt_local_entry);
+ }
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++extern void fastbat_check_local_client_and_setup_dirty(u8 *);
++extern void fastbat_check_client_and_setup_dirty(struct batadv_orig_node *, unsigned char *);
++#endif
++
+ /**
+  * batadv_tt_local_entry_release() - release tt_local_entry from lists and queue
+  *  for free after rcu grace period
+@@ -248,7 +253,9 @@
+ 				      common.refcount);
+ 
+ 	batadv_softif_vlan_put(tt_local_entry->vlan);
+-
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	fastbat_check_local_client_and_setup_dirty(&tt_local_entry->common.addr);
++#endif
+ 	call_rcu(&tt_local_entry->common.rcu, batadv_tt_local_entry_free_rcu);
+ }
+ 
+@@ -2338,10 +2345,6 @@
+ 	}
+ }
+ 
+-#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
+-extern void fastbat_check_client_and_setup_dirty(struct batadv_orig_node *, unsigned char *);
+-#endif
+-
+ /**
+  * batadv_tt_global_del() - remove a client from the global table
+  * @bat_priv: the bat priv with all the soft interface information

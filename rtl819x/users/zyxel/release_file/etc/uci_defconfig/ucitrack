@@ -1,0 +1,229 @@
+config network
+	option exec '/bin/sync'
+	option init network
+
+config wireless
+	option exec '/bin/sync'
+	option init wireless
+
+config wireless5G
+	option exec '/bin/sync'
+	option init wireless5G
+	
+config wireless_macfilter
+	option exec '/bin/sync'
+	option init wireless_macfilter
+
+config wireless5G_macfilter
+	option exec '/bin/sync'
+	option init wireless5G_macfilter	
+
+config firewall
+	option exec '/bin/sync'
+	option init firewall
+
+config olsr
+	option exec '/bin/sync'
+	option init olsrd
+
+config dhcp
+	option exec '/bin/sync'
+	option init dnsmasq
+
+config dropbear
+	option exec '/bin/sync'
+	option init dropbear
+	list affects 'upnpd'
+
+config uhttpd
+	option exec '/bin/sync'
+	option init uhttpd
+
+config lighttpd
+	option exec '/bin/sync'
+	option init lighttpd
+	list affects 'upnpd'
+
+config fstab
+	option exec '/bin/sync'
+	option init fstab
+
+config qos
+	option exec '/bin/sync'
+	option init qos
+
+config system
+	option exec '/bin/sync'
+	option init password	
+
+config luci_splash
+	option exec '/bin/sync'
+	option init luci_splash
+
+config upnpd
+	option exec '/bin/sync'
+	option init miniupnpd
+
+config ntpclient
+	option exec '/bin/sync'
+	option init ntpclient
+
+config samba
+	option exec '/bin/sync'
+	option init samba
+
+config tinyproxy
+	option exec '/bin/sync'
+	option init tinyproxy
+	
+config nat
+	option exec '/bin/sync'
+	option init nat
+	
+config portTrigger
+	option exec '/bin/sync'
+	option init portTrigger
+
+config updatedd
+	option exec '/bin/sync'
+	option init updatedd
+
+config route
+	option exec '/bin/sync'
+	option init route
+
+config parental_ex
+	option exec '/bin/sync'
+	option init webstr_filter_ex
+	
+config parental
+	option exec '/bin/sync'
+	option init webstr_filter
+
+config parental_monitor
+	option exec '/bin/sync'
+	option init parental_monitor 
+
+config syslogd
+	option exec '/bin/sync'
+	option init syslogd
+
+config wifi_schedule
+	option exec '/bin/sync'
+	option init wifi_scheduling
+
+config wifi_schedule5G
+	option exec '/bin/sync'
+	option init wifi_scheduling5G
+
+config ipsec
+	option exec '/bin/sync'
+	option init vpn_daemon
+
+config time
+	option exec '/bin/sync'
+	option init time_daemon
+
+config ipsec_new
+	option exec '/bin/sync'
+	option init netbios_daemon
+
+config igmpproxy
+	option exec '/bin/sync'
+	option init igmpproxy
+
+config wol
+	option exec '/bin/sync'
+	option init wol
+
+config gw6c
+	option exec '/bin/sync'
+	option init gw6c
+
+config wireless_client
+	option exec '/bin/sync'
+	option init wireless_client
+
+config port_status
+	option exec '/bin/sync'
+	option init port_config
+
+config dlna
+	option exec '/bin/sync'
+	option init dlna
+
+config proftpd
+	option exec '/bin/sync'
+	option init proftpd
+
+config snmpd
+	option exec '/bin/sync'
+	option init snmpd
+
+config dhcp6c
+	option exec '/bin/sync'
+	option init dhcp6c
+
+config RA_status
+	option exec '/bin/sync'
+	option init RA_status
+
+config RA_dhcp6c
+	option exec '/bin/sync'
+	option init RA_dhcp6c
+
+config intfGrp_v6
+	option exec '/bin/sync'
+	option init intfGrp_v6
+
+config firewall6
+	option exec '/bin/sync'
+	option init firewall6
+
+config default_lan_radvd
+	option exec '/bin/sync'
+	option init default_lan_radvd
+
+config account
+	option exec '/bin/sync'
+	option init password
+
+config radvd
+	option exec '/bin/sync'
+	option init radvd
+
+config sendmail
+	option exec '/bin/sync'
+	option init sendmail
+
+config web-redirect
+	option exec '/bin/sync'
+	option init zybootend
+
+config atf
+        option exec '/bin/sync'
+        option init atf
+
+config openvpn
+	option exec '/bin/sync'
+	option init openvpn
+
+config pptpd
+	option exec '/bin/sync'
+	option init pptpd
+
+config openvpn
+	option exec '/bin/sync'
+	option init openvpn
+
+config zybootend
+	option exec '/bin/sync'
+	option init zybootend
+
+config telnet
+	option exec '/bin/sync'
+	option init 'telnet'
+	list affects 'upnpd'
+	
+config end
+	option init end

@@ -1,0 +1,74 @@
+#!/bin/sh
+# Copyright (C) 2006 OpenWrt.org
+
+upnpd_netmask2prefix() {
+	local octet
+	local prefix=0
+	local IFS="."
+
+	set -- $1
+
+	for octet in $1 $2 $3 $4; do
+		while [ $octet -gt 0 ]; do
+			prefix=$(($prefix + ($octet & 1)))
+			octet=$(($octet >> 1))
+		done
+	done
+
+	return $prefix
+}
+
+tmpconf="/tmp/miniupnpd.conf"
+
+local ifname ipaddr netmask
+proto=$(uci get network.wan.proto)
+if [ "$proto" == "pppoe" ]; then
+    ifname="ppp0"
+else
+    ifname=$(uci get network.wan.ifname)
+fi
+
+lan_ifname=$(uci get network.br0.ifname)
+ipaddr=$(uci get network.br0.ipaddr)
+netmask=$(uci get network.br0.netmask)
+
+[ -z "$ifname" ] && ifname="$lan_ifname"
+
+local upload download logging
+upload=$(uci get upnpd.config.upload)
+download=$(uci get upnpd.config.download)
+logging=$(uci get upnpd.config.log_output)
+
+echo "ext_ifname=$ifname" >$tmpconf
+#[ -n "$ipaddr" ] && {
+#	upnpd_netmask2prefix "$netmask"
+#	echo "listening_ip=$ipaddr/$?" >>$tmpconf
+#}
+echo "listening_ip=br0" >>$tmpconf
+echo "port=5000" >>$tmpconf
+echo "enable_natpmp=yes" >>$tmpconf
+echo "enable_upnp=yes" >>$tmpconf
+echo "secure_mode=no" >>$tmpconf
+echo "system_uptime=yes" >>$tmpconf
+[ -n "$upload" -a -n "$download" ] && {
+	echo "bitrate_down=$(($download * 1024 * 1000))" >>$tmpconf
+	echo "bitrate_up=$(($upload * 1024 * 1000))" >>$tmpconf
+}
+uuid="$(cat /proc/sys/kernel/random/uuid | cut -c 1-24)"
+MAC="$(ifconfig br0 | grep HWaddr|awk -F ' ' '{print $5}'|sed 's/://g' | tr A-Z a-z)"
+echo "uuid=$uuid$MAC" >>$tmpconf
+
+#serial_num=$(cat /tmp/Serial_num)
+echo "serial=N/A" >>$tmpconf
+
+echo "allow 1024-65535 0.0.0.0/0 1024-65535" >>$tmpconf
+
+if [ -n "$ifname" ]; then
+	if [ "$logging" = "1" ]; then
+		/usr/sbin/miniupnpd -f /tmp/miniupnpd.conf -d
+	else
+		/usr/sbin/miniupnpd -f /tmp/miniupnpd.conf
+	fi
+else
+	logger -t "upnp daemon" "external interface not found, not starting"
+fi

@@ -1,0 +1,27 @@
+config system main
+	option release_year "2017"
+	option product_name "WSR30"
+	option product_typ_name "WSR30"
+	option product_model "DUAL_BAND"
+	option hostname	"WSR30"
+	option domain_name "local"
+	option language "en"
+	option systimeout "300"
+	option timezone "UTC"
+	option fw_upgrade_time "420"
+	option gui_restart_time "140"
+	option operation_role "controllee"
+	option install_mode "0"
+	option system_mode "2"
+	option eaZy123 "0"
+
+config ble ble
+        option enabled 1
+
+config keystore keystore
+        option certificate_tag "00000000-0000-0000-0000-000000000000"
+        option path ""
+config LED led
+  option on '1'
+  option level '0'
+  option notify_period '180'

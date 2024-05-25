@@ -1,0 +1,126 @@
+--- batman-adv-2018.0/net/batman-adv/originator.c	2018-02-27 16:49:11.000000000 +0800
++++ batman-adv-2018.0/net/batman-adv/originator.c	2018-05-24 10:40:17.157356240 +0800
+@@ -1180,6 +1180,10 @@
+ 	return ifinfo_purged;
+ }
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	extern void fastbat_check_disconnect_neighbor_and_setup_dirty(u8 *addr);
++#endif
++
+ /**
+  * batadv_purge_orig_neighbors() - purges neighbors from originator
+  * @bat_priv: the bat priv with all the soft interface information
+@@ -1225,6 +1229,11 @@
+ 			neigh_purged = true;
+ 
+ 			hlist_del_rcu(&neigh_node->list);
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++			//printk(KERN_ERR "[B@TMAN] purge orig neighbors(%pM) (%pM)!!!\n", 
++			//	orig_node->orig, neigh_node->addr);
++			fastbat_check_disconnect_neighbor_and_setup_dirty(orig_node->orig);
++#endif
+ 			batadv_neigh_node_put(neigh_node);
+ 		} else {
+ 			/* only necessary if not the whole neighbor is to be
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-25 10:55:42.993171770 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-24 16:01:40.373315506 +0800
+@@ -1412,6 +1412,30 @@
+ 	}
+ }
+ 
++void	fastbat_check_disconnect_neighbor_and_setup_dirty
++(u8 *addr)
++{
++	FAST_BAT	*bat;
++	u32			idx=0;
++	int			dirty=0;
++
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] setup dirty (o)%pM\n", addr);
++	for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		hlist_for_each_entry(bat, &bats[idx], list) {
++			if(bat->dirty)
++				continue;
++			//if(!memcmp(addr, bat->dst1, ETH_ALEN) || !memcmp(addr, bat->src1, ETH_ALEN)) {
++			if(!memcmp(addr, bat->orig, ETH_ALEN)) {
++				bat->dirty=1;
++				dirty=1;
++				FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
++			}
++		}
++	}
++	if(dirty)
++		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++}
++
+ void	fastbat_check_orig_and_setup_dirty
+ (struct batadv_orig_node *orig_node, 
+  struct batadv_neigh_node *neigh_node)
+@@ -1496,7 +1520,7 @@
+ void	fastbat_purge_dirty_entry
+ (void *tmp)
+ {
+-	FAST_BAT	*bat, *bat_to_be_del;
++	FAST_BAT	*bat;//, *bat_to_be_del;
+ 	FAST_LOCAL	*local, *local_to_be_del;
+ 	u32			idx=0;
+ 
+@@ -1504,10 +1528,21 @@
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+ 		hlist_for_each_entry(bat, &bats[idx], list) {
+ 			if(bat->dirty) {
++				//fastbat_del_list_entry(bat);
+ 				FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty bat! eliminates this bat!\n");
++#if		1
++				if(bat->list.next != NULL)
++					queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++				mutex_lock(&bats_lock);
++				hlist_del(&bat->list);
++				mutex_unlock(&bats_lock);
++				kfree(bat);
++				break;
++#else	//weird, sometimes would panic
+ 				if(bat->list.next == NULL) {
++					FASTBAT_DBG_RAW_MSG("[F@STBAT] null\n");
+ 					mutex_lock(&bats_lock);
+-					__hlist_del(&bat->list);
++					hlist_del(&bat->list);
+ 					//bats[idx].first=NULL;
+ 					mutex_unlock(&bats_lock);
+ 					kfree(bat);
+@@ -1517,19 +1552,30 @@
+ 					bat=(FAST_BAT *)(*bat->list.pprev);
+ 					//bat=bat->list.next;		//weird, FIXME
+ 					mutex_lock(&bats_lock);
+-					__hlist_del(&bat_to_be_del->list);
++					if((bat_to_be_del==NULL)) {
++						FASTBAT_ERR_MSG(" ERR! null bat_2_be_del!(idx=%d)\n", idx);
++						fastbat_show_list_entry(idx);
++						break;
++					}
++					if(&bat_to_be_del->list==NULL) {
++						FASTBAT_ERR_MSG(" ERR! null bat_2_be_del->list!(idx=%d)\n", idx);
++						fastbat_show_list_entry(idx);
++						break;
++					}
++					hlist_del(&bat_to_be_del->list);
+ 					mutex_unlock(&bats_lock);
+ 					kfree(bat_to_be_del);
+ 					if(bat == NULL) {
+-						FASTBAT_ERR_MSG(" ERR! null bat ptr!\n");
++						FASTBAT_ERR_MSG(" ERR! null bat ptr!(idx=%d)\n", idx);
+ 						fastbat_show_list_entry(idx);
+ 						break;
+ 					}
+-				}	
+-				//fastbat_del_list_entry(bat);
++				}
++#endif
+ 			}
+-		}	
++		}
+ 	}
++
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] start to purge local ...\n");
+ 	if(!list_empty(&fastbat_local_head)) {
+ 		list_for_each_entry(local, &fastbat_local_head, list) {

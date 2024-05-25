@@ -1,0 +1,281 @@
+#!/bin/sh
+
+GETMIB="flash get"
+BRIDGE1="br0"
+BRIDGE2="guest-lan"
+BAT_IFACE="bat0"
+LAN_IFACE="eth0"
+WAN_IFACE="eth1"
+VLAN_BAT_IFACE_ID="100"
+VLAN_ETH_IFACE_ID="200"
+ETH_MTU="9000"
+BATMAN_MOD_PATH="/lib/modules/3.10.90/updates/net/batman-adv/batman-adv.ko"
+BOOT_FLAG_PATH="/tmp/zyxelBridgeSetup_flag"
+#FASTMESH_ENABLE="1"
+
+renew_mac(){
+	# ex:
+	# WLAN0 MAC 		: 00:E0:4C:F1:F1:C1		//get mac from mib
+	# WLAN0 GUEST MAC	: 02:E0:4C:F1:F1:C1		//zyxel set
+	# WLAN1 MAC 		: 04:E0:4C:F1:F1:D1		//get mac from mib
+	# BATMAN(bat0) MAC	: 06:E0:4C:F1:F1:D1		//zyxel set
+	# WLAN2 MAC 		: 00:E0:4C:F1:F1:E1		//get mac from mib
+	# WLAN2 GUEST MAC 	: 02:E0:4C:F1:F1:E1		//zyxel set
+	def_mac=$(echo $1 |cut -c 3-12)
+	chk_mac1=$(echo $1 |cut -c 1-1)
+	chk_mac2=$(echo $1 |cut -c 2-2)
+	mac_v1="$chk_mac1"
+	mac_v2="$chk_mac2"
+
+	case $chk_mac2 in
+		0)
+			mac_v2="2"
+		;;
+		2)
+			mac_v2="4"
+		;;
+		4)
+			mac_v2="6"
+		;;
+		6)
+			mac_v2="8"
+		;;
+		8)
+			mac_v2="a"
+		;;
+		a)
+			mac_v2="c"
+		;;
+		c)
+			mac_v2="e"
+		;;
+		e)
+			mac_v2="0"
+			case $chk_mac1 in
+				0)
+					mac_v1="1"
+				;;
+				1)
+					mac_v1="2"
+				;;
+				2)
+					mac_v1="3"
+				;;
+				3)
+					mac_v1="4"
+				;;
+				4)
+					mac_v1="5"
+				;;
+				5)
+					mac_v1="6"
+				;;
+				6)
+					mac_v1="7"
+				;;
+				7)
+					mac_v1="8"
+				;;
+				8)
+					mac_v1="9"
+				;;
+				9)
+					mac_v1="a"
+				;;
+				a)
+					mac_v1="b"
+				;;
+				b)
+					mac_v1="c"
+				;;
+				c)
+					mac_v1="d"
+				;;
+				d)
+					mac_v1="e"
+				;;
+				e)
+					mac_v1="f"
+				;;
+				f)
+					mac_v1="0"
+				;;
+			esac
+		;;
+	esac
+
+	echo "$mac_v1""$mac_v2""$def_mac"
+}
+
+boot(){
+	if [ ! -f $BATMAN_MOD_PATH ]; then
+		echo "Not support B.A.T.N.A.N" > /dev/console
+		exit 0
+	fi
+
+	if [ ! -f $BOOT_FLAG_PATH ]; then
+		echo -n > $BOOT_FLAG_PATH
+		echo "-------Setup bridge init--------" > /dev/console
+		#Batman init
+		insmod $BATMAN_MOD_PATH
+		mkdir /tmp/batman_debug
+		mount -t debugfs none /tmp/batman_debug
+
+		eval `$GETMIB HW_WLAN1_WLAN_ADDR`
+		bat0_mac=$(renew_mac $HW_WLAN1_WLAN_ADDR)
+		#ip link set down dev $BAT_IFACE
+		ip link add name $BAT_IFACE type batadv
+		ip link set dev $BAT_IFACE master $BRIDGE1
+		ifconfig $BAT_IFACE hw ether $bat0_mac
+		ip link set up dev $BAT_IFACE
+
+		#Guest WLAN bridge init
+		brctl addbr $BRIDGE2
+		#eval `$GETMIB HW_WLAN0_WLAN_ADDR1`
+		#ifconfig $BRIDGE2 hw ether $HW_WLAN0_WLAN_ADDR1
+		ifconfig $BRIDGE2 up
+
+		#Not use B.A.T.M.A.N VLAN -- 20180824
+		#Add B.A.T.M.A.N VLAN interface
+		#ifconfig $BAT_IFACE.$VLAN_BAT_IFACE_ID down
+#		vconfig add $BAT_IFACE $VLAN_BAT_IFACE_ID
+#		ifconfig $BAT_IFACE.$VLAN_BAT_IFACE_ID hw ether $bat0_mac
+#		ifconfig $BAT_IFACE.$VLAN_BAT_IFACE_ID up
+#		brctl addif $BRIDGE2 $BAT_IFACE.$VLAN_BAT_IFACE_ID
+
+		#Add ethernet VLAN interface
+		#vconfig add $LAN_IFACE $VLAN_ETH_IFACE_ID
+		#vconfig add $WAN_IFACE $VLAN_ETH_IFACE_ID
+		#ifconfig $LAN_IFACE.$VLAN_ETH_IFACE_ID up
+		#ifconfig $WAN_IFACE.$VLAN_ETH_IFACE_ID up
+
+		#set rps
+		echo 2 > /sys/class/net/$BAT_IFACE/queues/rx-0/rps_cpus
+		echo 2 > /sys/class/net/$BAT_IFACE.$VLAN_BAT_IFACE_ID/queues/rx-0/rps_cpus
+		#echo 2 > /sys/class/net/$LAN_IFACE.$VLAN_ETH_IFACE_ID/queues/rx-0/rps_cpus
+		#echo 2 > /sys/class/net/$WAN_IFACE.$VLAN_ETH_IFACE_ID/queues/rx-0/rps_cpus
+	fi
+
+	start
+}
+
+start(){
+	echo "-------Setup zyxel bridge --------" > /dev/console
+	# eval `$GETMIB WLAN0_VAP0_WLAN_DISABLED`
+	# eval `$GETMIB WLAN2_VAP0_WLAN_DISABLED`
+	eval `$GETMIB OP_MODE`
+
+	# for dev in wlan0-va0 wlan2-va0 wlan0-msh0 wlan1-msh0 wlan2-msh0;do
+	# 	brctl delif $BRIDGE1 $dev
+	# 	brctl delif $BRIDGE2 $dev
+	# done
+
+	#enable switch jumbo frame, set mtu 9000
+	echo "1 9000" > /proc/jumbo_frame_support
+	#enable switch VLAN tag 
+	#echo add $VLAN_ETH_IFACE_ID 0x10f 0x00d > /proc/rtl865x/vlan
+
+	# #Add Guest WLAN bridge
+	# if [ "$WLAN0_VAP0_WLAN_DISABLED" == "0" ]; then
+	# 	eval `$GETMIB HW_WLAN0_WLAN_ADDR`
+	# 	brctl addif $BRIDGE2 wlan0-va0
+	# 	ifconfig wlan0-va0 down
+	# 	ifconfig wlan0-va0 hw ether $(renew_mac $HW_WLAN0_WLAN_ADDR)
+	# 	ifconfig wlan0-va0 up
+	# fi
+	# if [ "$WLAN2_VAP0_WLAN_DISABLED" == "0" ]; then
+	# 	eval `$GETMIB HW_WLAN2_WLAN_ADDR`
+	# 	brctl addif $BRIDGE2 wlan2-va0
+	# 	ifconfig wlan2-va0 down
+	# 	ifconfig wlan2-va0 hw ether $(renew_mac $HW_WLAN2_WLAN_ADDR)
+	# 	ifconfig wlan2-va0 up
+	# fi
+
+	# #Add WiFi mesh bridge
+	# for dev in wlan1-msh0 wlan2-msh0;do
+	# 	ip link set dev $dev nomaster
+	# 	ip link set dev $dev master $BAT_IFACE
+	# done
+
+	#set ethernet LAN mtu
+	#ip link set dev $LAN_IFACE.$VLAN_ETH_IFACE_ID nomaster
+	ip link set dev $LAN_IFACE nomaster
+	ifconfig $LAN_IFACE mtu $ETH_MTU
+	#ifconfig $LAN_IFACE.$VLAN_ETH_IFACE_ID mtu $ETH_MTU
+	#ip link set dev $LAN_IFACE.$VLAN_ETH_IFACE_ID master $BAT_IFACE
+	ip link set dev $LAN_IFACE master $BAT_IFACE
+
+	#set ethernet WAN mtu
+	#ip link set dev $WAN_IFACE.$VLAN_ETH_IFACE_ID nomaster
+	ip link set dev $WAN_IFACE nomaster
+	if [ "$OP_MODE" == "1" ]; then
+		ifconfig $WAN_IFACE mtu $ETH_MTU
+		#ifconfig $WAN_IFACE.$VLAN_ETH_IFACE_ID mtu $ETH_MTU
+		#ip link set dev $WAN_IFACE.$VLAN_ETH_IFACE_ID master $BAT_IFACE
+		ip link set dev $WAN_IFACE master $BAT_IFACE
+	fi
+
+	#Zyxel fastmesh_enable setting. Remove fastmesh since some corner case would make user unable access internet.
+	#country=$(atsh | grep Country | awk -F ': ' '{print $2}')
+	#if [ "$country" != "E1" ]; then
+	#	echo $FASTMESH_ENABLE > /proc/sys/net/core/fastmesh_enable
+	#fi
+
+}
+
+set_wlan_mac(){
+    iface_name="$2"
+
+    case $iface_name in
+		wlan0*)
+			eval `$GETMIB HW_WLAN0_WLAN_ADDR`
+			if [ "$iface_name" == "wlan0" ]; then
+				new_mac=$mac
+			else
+				new_mac=$(renew_mac $HW_WLAN0_WLAN_ADDR)
+			fi
+			;;
+		wlan1*)
+			eval `$GETMIB HW_WLAN1_WLAN_ADDR`
+			if [ "$iface_name" == "wlan1" ]; then
+				new_mac=$mac
+			else
+				new_mac=$(renew_mac $HW_WLAN1_WLAN_ADDR)
+			fi
+			;;
+		wlan2*)
+			eval `$GETMIB HW_WLAN2_WLAN_ADDR`
+			if [ "$iface_name" == "wlan2" ]; then
+				new_mac=$mac
+			else
+				new_mac=$(renew_mac $HW_WLAN2_WLAN_ADDR)
+			fi
+			;;
+		*)
+			echo ""
+			echo ""
+			echo "------ Wlan interface $2 not support ------"
+			echo ""
+			echo ""
+			exit 0
+			;;
+	esac
+
+	ifconfig $2 hw ether $new_mac
+	echo ""
+	echo "--- WLAN MAC ($2) : $new_mac ---"
+	echo ""
+}
+
+case $1 in
+	boot)
+		boot
+	;;
+	start)
+	 	start
+	;;
+	set_wlan_mac)
+		set_wlan_mac $@
+	;;
+esac
+exit 0

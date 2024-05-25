@@ -1,0 +1,16 @@
+#!/bin/sh 
+
+echo "start set opmode........."
+
+while :
+do
+	if [ -f "/tmp/lanprofile_set_opmode" ]; then
+		sleep 2
+		rm /tmp/lanprofile_set_opmode
+		/usr/sbin/set_opmode 
+		exit 0  
+	fi	
+	
+	sleep 1
+done
+ 

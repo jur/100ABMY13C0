@@ -1,0 +1,117 @@
+--- a/file.c	2017-10-18 17:55:26.322746970 +0800
++++ b/file.c	2017-10-18 17:53:09.871232524 +0800
+@@ -751,106 +751,7 @@
+ 		UCI_THROW(ctx, ctx->err);
+ }
+ 
+-/*
+- * Get changed data at commit time for trigger ZCFG command
+- */
+ 
+-void uci_changed_get_zy(struct uci_context *ctx, struct uci_package *p)
+-{
+-	struct uci_parse_context *pctx;
+-	char *filename = NULL;
+-	FILE *stream = NULL;
+-	char cmd[1024];
+-	int chk_chaged = 0;
+-	void *handle;
+-	void (*uci2tr98Collect)(char *);
+-	void (*uci2tr98Set)(void);
+-	void (*initChangedPackageUse)(void);
+-	char *error;
+-
+-	handle = dlopen("/usr/lib/libtr98_map_uci.so", RTLD_LAZY);
+-
+-	if (!handle) {
+-		sprintf(cmd,"echo open fail -- %s >> /tmp/uciDlopenFailLog",dlerror());
+-		system(cmd);
+-		fprintf (stderr, "%s\n", dlerror());
+-		goto done;
+-	}
+-
+-	UCI_TRAP_SAVE(ctx, done);
+-
+-	if ((asprintf(&filename, "%s/%s", ctx->savedir, p->e.name) < 0) || !filename)
+-			UCI_THROW(ctx, UCI_ERR_MEM);
+-
+-	stream = uci_open_stream(ctx, filename, SEEK_SET, false, false);
+-
+-	/* make sure no memory from previous parse attempts is leaked */
+-	uci_cleanup(ctx);
+-
+-	if (!p->has_delta)
+-		goto done;
+-
+-	pctx = (struct uci_parse_context *) uci_malloc(ctx, sizeof(struct uci_parse_context));
+-	ctx->pctx = pctx;
+-	pctx->file = stream;
+-
+-	while (!feof(ctx->pctx->file)) {
+-		uci_getln(ctx, 0);
+-		if (!pctx->buf[0])
+-				continue;
+-		//initial default structure for store changed data
+-		if (chk_chaged == 0){
+-			//initChangedPackage();
+-			*(void **)(&initChangedPackageUse) = dlsym(handle, "initChangedPackage");
+-			if ((error = dlerror()) != NULL)  {
+-				sprintf(cmd,"echo dlsym fail1 -- %s >> /tmp/uciDlopenFailLog",error);
+-				system(cmd);
+-				fprintf (stderr, "%s\n", error);				 
+-				goto done; 
+-			} 
+-
+-			initChangedPackageUse();
+-			chk_chaged = 1 ;
+-		}
+-
+-		//uci2tr98_collect(pctx->buf);
+-		*(void **)(&uci2tr98Collect) = dlsym(handle, "uci2tr98_collect");
+-		if ((error = dlerror()) != NULL)  {  
+-			sprintf(cmd,"echo dlsym fail2 -- %s >> /tmp/uciDlopenFailLog",error);
+-			system(cmd);
+-			fprintf (stderr, "%s\n", error);		  
+-			goto done; 
+-		}
+-		uci2tr98Collect(pctx->buf);
+-#if 0
+-	sprintf(cmd,"echo LOG: config:%s section:%s option:%s value:%s >> /tmp/uci_changedlog",p->e.name ,Newptr.section, Newptr.option, Newptr.value);
+-	system(cmd);
+-#endif
+-	}
+-	UCI_TRAP_RESTORE(ctx);
+-	if (chk_chaged == 1){
+-		//uci2tr98_set();
+-		*(void **)(&uci2tr98Set) = dlsym(handle, "uci2tr98_set");
+-		if ((error = dlerror()) != NULL)  {  
+-			sprintf(cmd,"echo dlsym fail3 -- %s >> /tmp/uciDlopenFailLog",error);
+-			system(cmd);
+-			fprintf (stderr, "%s\n", error);	  
+-			goto done; 
+-		}
+-		uci2tr98Set();
+-		//uci2tr98_free();
+-	}
+-
+-	goto done;
+-
+-done:
+-	ctx->err = 0;
+-	if (stream)
+-		uci_close_stream(stream);
+-	uci_cleanup(ctx);
+-	dlclose(handle);
+-	return;
+-}
+ 
+ /* 
+  * This function returns the filename by returning the string
+
+
+
+
+
+
+
+

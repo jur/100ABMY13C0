@@ -1,0 +1,6 @@
+config parentalControl 'general'
+	option enable '1'
+	option count '0'
+	option enable_redirect '1'
+	option redirect_HTTP_port '8080'
+	option redirect_HTTPS_port '8443'

@@ -1,0 +1,77 @@
+#!/bin/sh
+
+help()
+{
+	echo "Zyxel zapiBLEService control script"
+	echo "Usage:       zyxel_ble_init <Behavior>"
+	echo "Behavior:    <boot> <start> <stop> <enableBLE> <disableBLE>"
+}
+
+boot () {
+	/usr/sbin/gen_rtlbt_fw_config
+	start
+}
+
+start() {
+	shouldEnableBLE=`uci get system.ble.enabled`
+	hci0_result=`hciconfig | grep hci0`
+
+	if [ "$hci0_result" == "" ]; then
+		echo "cannot start BLE since hci0 not found!"
+		echo "$(date) Cannot start BLE since hci0 not found! turn led to SysError" > /tmp/ble_last_error
+		/sbin/zyxel_led_ctrl BLEError
+	elif [ "$shouldEnableBLE" == "1" ]; then
+        /usr/sbin/zapiBLEService &
+	elif [ "$zapiBLEService_result" != "" ]; then
+		echo "BLE is enabled. To properly restart BLE, please first use /bin/zyxel_ble_init stop." > /tmp/ble_last_error
+	else
+		echo "BLE is disabled. To properly enable BLE, please first use /bin/zyxel_ble_init enableBLE." > /tmp/ble_last_error
+	fi
+}
+
+stop() {
+	btmgmt -i hci0 connectable off >/dev/null 2>&1
+	btmgmt -i hci0 advertising off >/dev/null 2>&1
+	btmgmt -i hci0 le off >/dev/null 2>&1
+	btmgmt -i hci0 power off >/dev/null 2>&1
+
+	zapiBLEService_pid=$(ps | grep "[z]apiBLEService" | grep -v grep | awk '{print $1}')
+	if [ "" !=  "$zapiBLEService_pid" ]; then
+	  kill -9 $zapiBLEService_pid
+	fi
+}
+
+enableBLE () {
+	uci set system.ble.enabled=1
+	uci commit
+	start
+}
+
+disableBLE () {
+	uci set system.ble.enabled=0
+	uci commit
+	stop
+}
+
+case $1 in
+	boot)
+		boot
+	;;
+	start)
+		start
+	;;
+	stop)
+		stop
+	;;
+	enableBLE)
+		enableBLE
+	;;
+	disableBLE)
+		disableBLE
+	;;
+	*)
+		help
+		exit 4
+	;;
+esac
+exit 0

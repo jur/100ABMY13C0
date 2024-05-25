@@ -1,0 +1,63 @@
+#!/bin/sh
+
+help() {
+	echo "Zyxel backhaul_monitor control script"
+	echo "Usage:		/etc/init.d/backhaul_monitor <Behavior>"
+	echo "Behavior:     boot|start|stop|restart"
+}
+
+boot() {
+	start
+}
+
+start() {
+	pid=$(ps | pgrep backhaul_monitor)
+	if [ -z $pid ]; then
+		/usr/bin/backhaul_monitor
+	fi
+
+	watch_pid=$(ps | grep 'backhaul_monitor_watchdog' | grep -v grep | awk '{print $1}')
+	if [ -z $watch_pid ]; then
+		watch -n 15 -t /usr/sbin/backhaul_monitor_watchdog 1>/dev/null 2>&1 &
+		monitor_pid=$!
+		echo $monitor_pid > /var/run/backhaul_monitor_watchdog.pid
+	fi
+}
+
+stop() {
+	pid=$(cat /tmp/backhaul_monitor.pid)
+	if [ ! -z "$pid" ]; then
+		kill $pid
+		rm /tmp/backhaul_monitor.pid
+	fi
+
+	if [ -f "/var/run/backhaul_monitor_watchdog.pid" ]; then
+		kill $(cat /var/run/backhaul_monitor_watchdog.pid) &&
+			rm /var/run/backhaul_monitor_watchdog.pid
+	fi
+}
+
+restart() {
+	stop
+	start
+}
+
+case $1 in
+	boot)
+		boot
+		;;
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		restart
+		;;
+	*|help)
+		help
+		exit 4
+		;;
+esac
+exit 0

@@ -1,0 +1,36 @@
+--- batman-adv-2018.3/net/batman-adv/bat_v_elp.c	2019-09-18 11:05:17.949851330 +0800
++++ batman-adv-2018.3/net/batman-adv/bat_v_elp.c	2019-09-18 14:47:45.201724041 +0800
+@@ -93,10 +93,16 @@
+ 	/* grab link rate */
+ 	if(strcmp(realdev->name, "wlan0-msh0") == 0){
+ 		retval=batadv_get_wifi_link_rate(realdev, addr);
+-		_retval=(retval*45)/100;
++		if(retval == -ENOENT)
++			_retval=0;
++		else
++			_retval=(retval*45)/100;
+ 	}else{
+ 		retval=batadv_get_wifi_link_rate(realdev, addr);
+-		_retval=(retval*6)/10;
++		if(retval == -ENOENT)
++			_retval=0;
++		else
++			_retval=(retval*6)/10;
+ 		//printk(KERN_ERR "[B@TMAN] rate %d => %d \n", retval, _retval);
+ 	}
+ #endif
+@@ -163,13 +169,7 @@
+ 		ret=fake_cfg80211_get_station(real_netdev, neigh->addr, sinfo);
+ 		dev_put(real_netdev);
+ 
+-		if(ret == -ENOENT) {
+-			/* Node is not associated anymore! It would be
+-			 * possible to delete this neighbor. For now set
+-			 * the throughput metric to 0.
+-			 */
+-			return	0;
+-		} else if(ret > 0) {
++		if(ret > 0) {
+ 			ret=10*ret;   /* Mbps -> 100kbps */
+ 			return	ret;
+ 		} else {

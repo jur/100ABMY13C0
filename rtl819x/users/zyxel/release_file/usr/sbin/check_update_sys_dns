@@ -1,0 +1,25 @@
+#!/bin/sh 
+
+filename="/etc/resolv.conf"
+
+for i in $(seq 1 1 10);
+do
+    
+	if [ -s "$filename" ]; then
+		echo "is not empty"
+		result="enable"
+	else
+		result="disable"
+	fi
+	sleep 2
+	if [ "$result" == "enable" ]; then
+		/usr/sbin/update_sys_dns
+		exit 0
+	fi	
+		
+	
+done
+
+	 
+    
+ 

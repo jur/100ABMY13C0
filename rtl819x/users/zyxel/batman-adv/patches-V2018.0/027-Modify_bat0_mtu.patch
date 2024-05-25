@@ -1,0 +1,13 @@
+--- net/batman-adv/hard-interface.c	2018-09-20 14:43:41.408443199 +0800
++++ net/batman-adv/hard-interface.c	2018-09-20 14:44:32.591882356 +0800
+@@ -625,7 +625,8 @@
+ 	 *
+ 	 * However batman-adv does not support MTUs bigger than ETH_DATA_LEN
+ 	 */
+-	return min_t(int, min_mtu - batadv_max_header_len(), ETH_DATA_LEN);
++	//set MTU to 1550 for ZYXEL
++	return min_t(int, min_mtu - batadv_max_header_len(), 1550);
+ }
+ 
+ /**
+

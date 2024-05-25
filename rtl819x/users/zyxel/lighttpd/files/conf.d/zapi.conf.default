@@ -1,0 +1,27 @@
+$HTTP["remoteip"] == "|LANIP|"{
+	$HTTP["url"] =~ "^/zapi($|/)" {
+		server.document-root = "/www/cgi-bin"
+		fastcgi.server += (
+			"zapi" =>
+			((
+				"socket" => "/tmp/zapi.socket",
+				"bin-path" => "/www/cgi-bin/zapi",
+				"max-procs" => 1
+			))
+		)
+	}
+}
+
+$HTTP["remoteip"] == "|CAPTIVEIP|"{
+	$HTTP["url"] =~ "^/zapi($|/)" {
+		server.document-root = "/www/cgi-bin"
+		fastcgi.server += (
+			"zapi" =>
+			((
+				"socket" => "/tmp/zapi.socket",
+				"bin-path" => "/www/cgi-bin/zapi",
+				"max-procs" => 1
+			))
+		)
+	}
+}

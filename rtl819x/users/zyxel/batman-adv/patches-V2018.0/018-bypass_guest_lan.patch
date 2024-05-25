@@ -1,0 +1,244 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-20 15:32:10.464391360 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-20 16:50:07.024381481 +0800
+@@ -386,6 +386,9 @@
+  struct net_device *out)
+ {
+ 	FAST_LOCAL	*local;
++#if		defined(BYPASS_GUEST_LAN)
++	int			vlan=0;
++#endif
+ 	int			retval= -EINVAL;
+ 	struct ethhdr	*ethhdr=eth_hdr(skb);
+ 
+@@ -404,7 +407,7 @@
+ 	}
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] %pM %s\n", ethhdr->h_dest, out->name);
+ 
+-	/* search */
++	/* search local list */
+ 	local=fastbat_local_search(ethhdr->h_dest);
+ 	if(local) {
+ 		xxxFASTBAT_DBG_MSG("[F@STBAT] local bat's exist!\n");
+@@ -418,6 +421,21 @@
+ 		retval=-EINVAL;
+ 		goto	RETN;
+ 	}
++#if		defined(BYPASS_GUEST_LAN)
++	/* check vlan type on global bat list */
++	{
++		int			idx=0;
++		FAST_BAT	*bat;
++		for(; idx<FAST_BAT_LIST_LEN; idx++) {
++			hlist_for_each_entry(bat, &bats[idx], list) {
++				if((bat->vlan == 2) && !memcmp(bat->src, ethhdr->h_dest, ETH_ALEN)) {
++					vlan=2;
++					xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] vlan inside local!!!\n");
++				}
++			}
++		}
++	}
++#endif
+ 
+ 	/* append */
+ 	if(atomic_read(&__fastmesh_priv.local_count) >= FAST_BAT_LOCAL_LEN_MAX) {
+@@ -434,6 +452,10 @@
+ 	memcpy(local->dst, ethhdr->h_dest, ETH_ALEN);
+ 	local->last_seen=jiffies;
+ 	local->output_dev=out;
++#if		defined(BYPASS_GUEST_LAN)
++	if(vlan)
++		local->vlan=vlan;
++#endif
+ 	list_add(local, &fastbat_local_head);
+ RETN:
+ 	return		retval;
+@@ -473,17 +495,9 @@
+ 		retval=-ENODEV;
+ 		goto    RETN;
+ 	}
+-#if	0//debug
+-	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] (proto=%x) (DST=%x:%x:%x:%x:%x:%x) (SRC=%x:%x:%x:%x:%x:%x)\n", 
+-		ethhdr->h_proto, 
+-		ethhdr->h_dest[0], ethhdr->h_dest[1], ethhdr->h_dest[2], 
+-		ethhdr->h_dest[3], ethhdr->h_dest[4], ethhdr->h_dest[5], 
+-		ethhdr->h_source[0], ethhdr->h_source[1], ethhdr->h_source[2], 
+-		ethhdr->h_source[3], ethhdr->h_source[4], ethhdr->h_source[5]);
+-	xxxfastbat_show_raw_data((u8 *)ethhdr, 63);
+-#endif
+ 
+ HDR_PARSE:
++	/* verdict batman packettype */
+ 	/*if(!fastbat_verdict_packettype(ethhdr)) {
+ 		FASTBAT_DBG_RAW_MSG("[F@STBAT] PACKET TYPE verdict failed!!!");
+ 		retval=-EINVAL;
+@@ -529,24 +543,24 @@
+ 	}
+ 	real_ethhdr=(struct ethhdr *)((u8 *)ethhdr+hdr_len);
+ #if	0//debug
++	fastbat_show_raw_data((u8 *)ethhdr, 63);
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] (proto=%x) (DST=%pM) (SRC=%pM)\n",
++		ethhdr->h_proto, ethhdr->h_dest, ethhdr->h_source);
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] proto(%x)\n", real_ethhdr->h_proto);
+-	FASTBAT_DBG_RAW_MSG("[F@STBAT] (real) (ptype=%x) (proto=%x) (DST=%x:%x:%x:%x:%x:%x) (SRC=%x:%x:%x:%x:%x:%x)\n", 
+-		packettype, real_ethhdr->h_proto, 
+-		real_ethhdr->h_dest[0], real_ethhdr->h_dest[1], real_ethhdr->h_dest[2], 
+-		real_ethhdr->h_dest[3], real_ethhdr->h_dest[4], real_ethhdr->h_dest[5], 
+-		real_ethhdr->h_source[0], real_ethhdr->h_source[1], real_ethhdr->h_source[2], 
+-		real_ethhdr->h_source[3], real_ethhdr->h_source[4], real_ethhdr->h_source[5]);
+-	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] (IDX=%u) (hdr-len%d)\n", 
+-		fastbat_hash_calculate(real_ethhdr->h_source, real_ethhdr->h_dest), hdr_len);
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] (real) (ptype=%x) (proto=%x) (DST=%pM) (SRC=%pM)\n", 
++		packettype, real_ethhdr->h_proto, real_ethhdr->h_dest, real_ethhdr->h_source);
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] (IDX=%u) (hdr-len=%d)\n", 
++	fastbat_hash_calculate(real_ethhdr->h_source, real_ethhdr->h_dest), hdr_len);
+ #endif
+ 
+-	/* check */
++	/* check if exist */
+ 	//bat=fastbat_skb_peel_and_search(skb);
+ 	//fastbat_show_raw_data((u8 *)ethhdr, 48);
+ 	bat=fastbat_list_search(real_ethhdr->h_source, real_ethhdr->h_dest);
+ 	if(bat) {
+ 		//fastbat_show_list_entry(fastbat_hash_calculate(bat->src, bat->dst));
+-		//FASTBAT_DBG_MSG(" SRC/DST's exist!!!");
++		xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] SRC/DST's exist!!! (%pM %pM)\n", 
++			real_ethhdr->h_source, real_ethhdr->h_dest);
+ 		retval=-EEXIST;
+ 		goto	RETN;
+ 	}
+@@ -563,7 +577,7 @@
+ 	}
+ 	atomic_inc(&__fastmesh_priv.global_count);
+ 
+-	/* append into list */
++	/* append into global entry */
+ 	ether_addr_copy(bat->src1, ethhdr->h_source);
+ 	ether_addr_copy(bat->dst1, ethhdr->h_dest);
+ 	if(ethhdr->h_proto == ETH_P_8021Q) {
+@@ -639,7 +653,7 @@
+ 			goto	FREE;
+ 		}
+ 	}
+-	ethhdr=(struct ethhdr *)((u8 *)ethhdr + hdr_len);
++	ethhdr=(struct ethhdr *)((u8 *)ethhdr + hdr_len);	/*real*/
+ 	bat->net_dev=out;
+ 	bat->soft_iface=soft;
+ 	retval=fastbat_insert_list_entry(ethhdr->h_source, ethhdr->h_dest, bat);
+@@ -652,6 +666,14 @@
+ 	//bat->count=0;
+ 	ether_addr_copy(bat->src, ethhdr->h_source);
+ 	ether_addr_copy(bat->dst, ethhdr->h_dest);
++#if		defined(BYPASS_GUEST_LAN)
++	if(ethhdr->h_proto == ETH_P_8021Q) {
++		bat->vlan=2;	/* 2:vlan is among real ethernet II (vlan inside guest lan) */
++		vhdr=(struct vlan_ethhdr *)ethhdr;
++		bat->vlan_data.h_vlan_TCI=vhdr->h_vlan_TCI;
++		bat->vlan_data.h_vlan_encapsulated_proto=vhdr->h_vlan_encapsulated_proto;
++	}
++#endif
+ 	if(neigh) {
+ 		struct batadv_orig_node	*orig_node;
+ #if	!defined(COLLECT_ORIG_OR_NEIGH)
+@@ -746,6 +768,11 @@
+ 		/* src and dst addr are both the same*/
+ 		if((memcmp(bat->src, src, ETH_ALEN)==0) && (memcmp(bat->dst, dst, ETH_ALEN)==0)){
+ 			xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] Catch bat!!!\n");
++#if		defined(BYPASS_GUEST_LAN)
++			if(bat->vlan == 2) {
++				return	bat;
++			} else 
++#endif
+ 			if(!bat->dirty) {
+ 				return	bat;
+ 			} else {
+@@ -918,9 +945,12 @@
+ 			return	NULL;
+ 		}
+ 	} else {
++		xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] (S):%pM (D):%pM", eth->h_source, eth->h_dest);
++		xxxFASTBAT_DBG_RAW_MSG(" - protocol:0x%x\n", eth->h_proto);
+ 		return  eth;
+ 	}
+-	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] protocol:0x%x len:%d\n", eth->h_proto, hdr_len);
++	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] (RS):%pM (RD):%pM", eth->h_source, eth->h_dest);
++	xxxFASTBAT_DBG_RAW_MSG(" - protocol:0x%x len:%d\n", eth->h_proto, hdr_len);
+ 	real_eth=(struct ethher *)((u8 *)u + hdr_len);
+ 	return	real_eth;
+ }
+@@ -973,8 +1003,6 @@
+ 	//if(pass)
+ 		FASTBAT_DBG_RAW_MSG("[F@STBAT] (pass=%d/%04x) (vlan=%d) (batman=%d)\n", 
+ 			pass, ethhdr->h_proto, *vlan, *batman);
+-#endif
+-#if	0//debug
+ 	if(pass)
+ 		fastbat_show_raw_data((u8 *)ethhdr, 63);
+ #endif
+@@ -1005,10 +1033,17 @@
+ {
+ 	int	retval=-1;
+ 
+-	if(bat == NULL)
++#if		defined(BYPASS_GUEST_LAN)
++	if(bat == NULL || bat->vlan == 2) {
++#else
++	if(bat == NULL) {
++#endif
++		xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] Dispatch failed!\n");
+ 		goto	RETN;
++	}
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] dispatch: vlan(%d)batman(%d) => vlan(%d)batman(%d)\n", 
+ 		vlan, batman, bat->vlan, bat->batman);
++	
+ 	if(vlan && batman && bat->vlan && bat->batman)
+ 		retval=fastbat_xmit(skb, bat);
+ 	else if(!vlan && !batman && bat->vlan && bat->batman)
+@@ -1683,12 +1718,12 @@
+ 
+ 	/* local bats */
+ 	counts=0;
+-	seq_puts(seq, "(NO.)   <dst>             <dirty> <dev>\n");
++	seq_puts(seq, "(NO.)   <dst>             <dirty> <vlan> <dev>\n");
+ 	if(!list_empty(&fastbat_local_head)) {
+ 		list_for_each_entry(local, &fastbat_local_head, list) {
+ 			++counts;
+-			seq_printf(seq, "(NO-%02d) %pM %d       %s\n", 
+-				counts, local->dst, local->dirty, local->output_dev->name);
++			seq_printf(seq, "(NO-%02d) %pM %d       %d      %s\n", 
++				counts, local->dst, local->dirty, local->vlan, local->output_dev->name);
+ 		}
+ 	}
+ 	return	0;
+--- batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-06-20 15:32:10.464391360 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-06-20 16:11:20.840386395 +0800
+@@ -22,6 +22,9 @@
+ #define FAST_BAT_GLOBAL_LEN_MAX	1024
+ #define FAST_BAT_LOCAL_LEN_MAX	64
+ 
++#define COLLECT_ORIG_OR_NEIGH
++#define BYPASS_GUEST_LAN
++
+ typedef struct	fastmesh_priv {
+ 	struct batadv_priv	*batman_priv;	/* so far, just support one batman iface */
+ 	atomic_t	global_count;			/* total global bats */
+@@ -55,7 +58,6 @@
+ 		struct batadv_unicast_4addr_packet	u4;
+ 	}bat_data;
+ }FAST_BAT;
+-#define	COLLECT_ORIG_OR_NEIGH
+ 
+ typedef struct	fast_local {
+ 	struct list_head	list;
+--- batman-adv-2018.0/net/batman-adv/routing.c	2018-06-20 15:32:10.420391360 +0800
++++ batman-adv-2018.0/net/batman-adv/routing.c	2018-06-20 16:12:26.684386256 +0800
+@@ -1011,6 +1011,10 @@
+ 		/* verdict local bat */
+ 		local=fastbat_local_search(real->h_dest);
+ 		if(local != NULL) {
++#if		defined(BYPASS_GUEST_LAN)
++			if(local->vlan == 2)
++				goto	DONOTHING;
++#endif
+ 			retval=fastbat_xmit_peel(skb, local);
+ 			if(retval >= 0)
+ 				return	NET_RX_SUCCESS;

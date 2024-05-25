@@ -1,0 +1,203 @@
+#!/bin/sh
+. /sbin/functions.sh
+include /sbin
+
+lock /tmp/.firewall_blockdevice_sbin.lock
+
+## Replace paths of commands "iptables" & "ip6tables" if needed.
+##
+#iptables() {
+#  /usr/sbin/iptables -w "$@"
+#}
+
+##check mode,if AP/UR,exit
+#sys_mode=$(get_sys_mode)
+#op_role=$(uci get system.main.operation_role)
+#[ "$sys_mode" = "2" -o "$sys_mode" = "3" ] && [ "$op_role" != "controller" ] && exit 0
+
+clean_firewall_timelimit_rule() {
+  find /tmp/ -maxdepth 1 -name 'firewall_timelimit_rule*' | while read -r filename
+  do
+    while IFS= read -r LINE
+    do
+      string=$(echo "$LINE" | grep iptables)
+      eval "$string"
+      string=$(echo "$LINE" | grep parental_tool)
+      eval "$string"
+      string=$(echo "$LINE" | grep atrm)
+      eval "$string"
+    done < "$filename"
+    rm -f "$filename"
+  done
+}
+
+ck_timelimit() {
+  ruleNum=$1
+  timestamp=$2 # 0 is forever
+  state=$3
+  cmd_rule=$4
+  IsPrerouting_rule=$5 #prerouting ? true : false
+  do_at_command=$6 # Whether execute at command.("RUN" or "WAIT") ###wait all rules to add to /tmp/firewall_timelimit_rule"$ruleNum"
+  delete_rule=""
+  now=$(date +%s)
+
+  if [ -z "$timestamp" ] || [ "$timestamp" = 0 ] || [ "$now" -ge "$timestamp" ]; then
+    : #if forever or expire, Don't set time out.
+  elif [ -f /tmp/firewall_timelimit_rule"$ruleNum" ]; then # exsit. So we only insert delete_rule to file.
+    stoptime=$(date -d @"$timestamp" '+%H:%M %Y-%m-%d')
+    if [ "$state" = "Block" ]; then
+      delete_rule=$(echo "$cmd_rule" | sed 's/ -[AI] / -D /')
+    elif [ "$state" = "Allow" ]; then
+      if [ "$IsPrerouting_rule" = true ]; then
+        delete_rule=$(echo "$cmd_rule" | sed 's/ -j DNAT.*/ -j RETURN/')
+      elif [ "$IsPrerouting_rule" = false ]; then
+        delete_rule=$(echo "$cmd_rule" | sed 's/ DROP/ RETURN/I')
+      fi
+      $delete_rule #exec
+      delete_rule=$(echo "$delete_rule" | sed 's/ -[AI] / -D /')
+    fi
+    sed -i "s/#start delete_rule/#start delete_rule\\n$delete_rule/" /tmp/firewall_timelimit_rule"$ruleNum"
+
+    if [ "$do_at_command" = "RUN" ]; then
+      /bin/sync
+      at "$stoptime" -f /tmp/firewall_timelimit_rule"$ruleNum"
+      echo "atrm $(at -l | awk 'BEGIN{FS=" "} {print $1}' | sed -n '1p')" >> /tmp/firewall_timelimit_rule"$ruleNum"
+    fi
+
+  elif [ "$now" -lt "$timestamp" ]; then # time limit
+    stoptime=$(date -d @"$timestamp" '+%H:%M %Y-%m-%d')
+    at_timeformat=$(date -d @"$timestamp" '+%H:%M:00 %Y')
+    sleepsec=$(date -d @"$timestamp" +%S) # for sleep. Because we can't use secs for "at" command
+    delay=$(at -l | grep -c "$at_timeformat") #if we execute multiple timelimit_rule scripts at the same time, the iptables command maybe unable to be handle.
+
+    echo "#!/bin/sh" > /tmp/firewall_timelimit_rule"$ruleNum"
+    echo "sleep $((sleepsec + delay))" >> /tmp/firewall_timelimit_rule"$ruleNum"
+    echo "#start delete_rule" >> /tmp/firewall_timelimit_rule"$ruleNum"
+    if [ "$state" = "Block" ]; then
+      delete_rule=$(echo "$cmd_rule" | sed 's/ -[AI] / -D /')
+    elif [ "$state" = "Allow" ]; then
+      if [ "$IsPrerouting_rule" = true ]; then
+        delete_rule=$(echo "$cmd_rule" | sed 's/ -j DNAT.*/ -j RETURN/')
+      elif [ "$IsPrerouting_rule" = false ]; then
+        delete_rule=$(echo "$cmd_rule" | sed 's/ DROP/ RETURN/I')
+      fi
+      $delete_rule #exec
+      delete_rule=$(echo "$delete_rule" | sed 's/ -[AI] / -D /')
+    fi
+    {
+      echo "$delete_rule"
+      [ "$state" = "Allow" ] && echo "parental_tool -t clean_session -m $(uci get firewall_blockdevice.rule$ruleNum.mac_address) &" && echo "sleep 1" && echo "parental_tool -t clean_session -m $(uci get firewall_blockdevice.rule$ruleNum.mac_address) &"
+      echo "rm -f /tmp/firewall_timelimit_rule$ruleNum"
+    } >> /tmp/firewall_timelimit_rule"$ruleNum"
+    chmod +x /tmp/firewall_timelimit_rule"$ruleNum"
+
+    if [ "$do_at_command" = "RUN" ]; then
+      /bin/sync
+      at "$stoptime" -f /tmp/firewall_timelimit_rule"$ruleNum"
+      echo "atrm $(at -l | awk 'BEGIN{FS=" "} {print $1}' | sed -n '1p')" >> /tmp/firewall_timelimit_rule"$ruleNum"
+    fi
+  fi
+}
+
+stop() {
+  iptables -F blockdevice_filter
+  iptables -D FORWARD -j blockdevice_filter
+  iptables -X blockdevice_filter
+
+  #icmp
+  iptables -F blockdevice_input_rule
+  iptables -D INPUT -p icmp -j blockdevice_input_rule
+  iptables -X blockdevice_input_rule
+
+  #prerouting -> in /sbin/parental_iptable.sh ......
+  #iptables -t nat -F prerouting_parental_rule
+  #iptables -t nat -D PREROUTING -j prerouting_parental_rule
+  #iptables -t nat -X prerouting_parental_rule
+}
+
+apply() {
+  #clean
+  iptables -F blockdevice_filter
+  iptables -F blockdevice_input_rule
+  iptables -t nat -F prerouting_parental_rule #
+
+  filter_enable=$(uci get firewall.general.filterEnabled) #follow "firewall" config(main)
+  [ "$filter_enable" != "1" ] && return
+  iptables -N blockdevice_filter 2>/dev/null
+  iptables -N blockdevice_input_rule 2>/dev/null
+
+  count=$(uci get firewall_blockdevice.general.rules_count)
+  lan_IP=$(uci get network.br0.ipaddr)
+  redirect_enable=$(uci get parentalControl.general.enable_redirect)
+  redirect_https_port=$(uci get parentalControl.general.redirect_HTTPS_port)
+  proto=$(uci get network.wan.proto)
+  WAN=$(uci get network.wan.ifname)
+  if [ "$proto" = "pppoe" ]; then
+    WAN="ppp0"
+  elif [ "$proto" = "pptp" ]; then
+    WAN="$proto""-wan"
+  fi
+
+  ruleid=1
+  while [ "$ruleid" -le "$count" ]
+  do
+    timestamp=$(uci get firewall_blockdevice.rule$ruleid.timestamp)
+    state=$(uci get firewall_blockdevice.rule$ruleid.state)
+    mac_address=$(uci get firewall_blockdevice.rule$ruleid.mac_address)
+    mac="-m mac --mac-source $mac_address"
+    if [ "$redirect_enable" = "1" ]; then
+      iptables -t nat -I prerouting_parental_rule ! -i $WAN ! -d $lan_IP -p tcp --dport 443 $mac -j DNAT --to $lan_IP:$redirect_https_port
+      ck_timelimit "$ruleid" "$timestamp" "$state" "iptables -t nat -I prerouting_parental_rule ! -i $WAN ! -d $lan_IP -p tcp --dport 443 $mac -j DNAT --to $lan_IP:$redirect_https_port" true "WAIT" #check iptables time limit and make expire
+
+      iptables -t nat -I prerouting_parental_rule ! -i $WAN ! -d $lan_IP -p tcp --dport 80 $mac -j DNAT --to $lan_IP:8008
+      ck_timelimit "$ruleid" "$timestamp" "$state" "iptables -t nat -I prerouting_parental_rule ! -i $WAN ! -d $lan_IP -p tcp --dport 80 $mac -j DNAT --to $lan_IP:8008" true "WAIT" #check iptables time limit and make expire
+    fi
+    ck_timelimit "$ruleid" "$timestamp" "$state" "iptables -A blockdevice_filter $mac -j DROP" false "RUN" #check iptables time limit and make expire
+    iptables -A blockdevice_filter $mac -j DROP
+    ck_timelimit "$ruleid" "$timestamp" "$state" "iptables -A blockdevice_input_rule -p icmp $mac -j DROP" false "RUN" #check iptables time limit and make expire
+    iptables -A blockdevice_input_rule -p icmp $mac -j DROP
+
+    parental_tool -t clean_session -m "$mac_address" &
+    sleep 1
+    parental_tool -t clean_session -m "$mac_address" &
+
+    ruleid=$((ruleid + 1))
+  done
+}
+
+check() {
+  blockdevice_filter_exist=$(iptables -vL FORWARD | grep blockdevice_filter)
+  blockdevice_input_rule_exist=$(iptables -vL INPUT | grep blockdevice_input_rule)
+
+  if [ -z "$blockdevice_filter_exist" ] || [ -z "$blockdevice_input_rule_exist" ]; then
+    echo -n "chainNotExist"
+  else
+    echo -n "chainExist"
+  fi
+}
+
+cmd=$1
+case "$cmd" in
+  stop)
+    clean_firewall_timelimit_rule
+    stop
+  ;;
+  restart|init)
+    clean_firewall_timelimit_rule
+    stop
+    apply
+  ;;
+  start|reload)
+    clean_firewall_timelimit_rule
+    apply
+  ;;
+  check)
+    check
+  ;;
+  *)
+    echo "Error parameter in /usr/sbin/firewall_blockdevice" > /dev/console
+  ;;
+esac
+
+lock -u /tmp/.firewall_blockdevice_sbin.lock
+

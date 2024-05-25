@@ -1,0 +1,23 @@
+#!/bin/sh
+
+start() {
+	op_role=$(uci get system.main.operation_role)
+	if [ "$op_role" == "controllee" ]; then
+		gre_daemon -b br0 -g guest-lan &
+	else
+		gre_daemon -m -b br0 -g guest-lan &
+	fi
+}
+
+stop() {
+	killall -9 gre_daemon
+}
+
+case $1 in
+	start)
+		start $@
+	;;
+	stop)
+		stop
+	;;
+esac

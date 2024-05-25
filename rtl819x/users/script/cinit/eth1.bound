@@ -1,0 +1,10 @@
+#!/bin/sh
+# udhcpc bound script
+
+sysconf conn dhcp $interface $ip $subnet $router $dns
+
+
+echo -e "interface: $interface" > /tmp/dhcp.config
+echo -e "subnet: $subnet" >> /tmp/dhcp.config
+echo -e "defaultGateway: $router" >> /tmp/dhcp.config
+echo -e "dns: $dns" >> /tmp/dhcp.config

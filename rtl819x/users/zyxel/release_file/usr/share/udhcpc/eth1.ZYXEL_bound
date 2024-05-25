@@ -1,0 +1,41 @@
+#!/bin/sh
+# udhcpc bound script
+RESOLV_CONF="/var/udhcpc/resolv.conf"
+
+[ -n "$broadcast" ] && BROADCAST="broadcast $broadcast"
+[ -n "$subnet" ] && NETMASK="netmask $subnet"
+
+echo " "
+echo "************"
+echo "$interface $ip $router $dns"
+echo "************"
+
+zlog 7 2 '[DHCP] wan port connection is up.'
+
+ifconfig $interface $ip $BROADCAST $NETMASK
+
+echo "$ip" > /var/wan_ip
+#Add for further add default route in zyxel_auto_ip_change
+echo "$router" > /var/wan_gateway
+if [ "$router" ]; then
+        for i in $router
+        do
+                route add -net default gw $i dev $interface
+        done
+fi
+
+if [ $? = 0 ]; then
+echo "WAN setting is OK."
+fi
+
+[ -f "$RESOLV_CONF" ] && rm $RESOLV_CONF
+
+for i in $dns
+do
+        echo nameserver $i >> $RESOLV_CONF
+done
+
+cp $RESOLV_CONF /var/resolv.conf
+
+touch /var/wan_IP_trigger
+/usr/sbin/zyxel_event_trigger eth1 UP

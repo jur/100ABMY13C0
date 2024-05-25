@@ -1,0 +1,45 @@
+#!/bin/sh
+
+start() {
+	local WAN_TYPE=`uci get network.wan.proto`
+
+	if [ "$WAN_TYPE" == "dhcp" ] || [ "$WAN_TYPE" == "static" ]; then
+		local ETH_WAN=`uci get network.wan.ifname`
+		local ETH_WANIP=$(ifconfig $ETH_WAN | grep "inet addr")
+		if [ "$ETH_WANIP" == "" ]; then
+			exit 0
+		fi
+	fi
+
+	if [ "$WAN_TYPE" == "pppoe" ] || [ "$WAN_TYPE" == "pptp" ]; then
+		local PPPOE_WAN="ppp0"
+		local PPPOE_WANIP=$(ifconfig $PPPOE_WAN | grep "inet addr")
+		if [ "$PPPOE_WANIP" == "" ]; then
+			exit 0
+		fi
+	fi
+
+	/usr/sbin/act_igmpproxy
+	echo "Init igmpproxy"
+}
+
+stop() {
+	local igmp_exist=$(pidof igmpproxy-0.1)
+	[ -n "$igmp_exist" ] && kill -9 "$igmp_exist"
+        echo "Stop igmpproxy"
+}
+
+case "$1" in
+	"start")
+		start
+	;;
+	"stop")
+		stop
+	;;
+	*)
+	echo "Invalid command: $0 $1"
+	echo "example:"
+	echo "         1.$0 start"
+	echo "         2.$0 stop "
+	;;
+esac

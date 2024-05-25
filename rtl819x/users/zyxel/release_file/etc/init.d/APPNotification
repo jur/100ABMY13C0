@@ -1,0 +1,45 @@
+#!/bin/sh
+KILL_APPNotification() {
+        PID=$(ps | grep "/usr/sbin/APPNotification" | grep "grep" -v | awk '{print $1}')
+ 
+        if [ "$PID" != "" ] ; then
+                kill $PID
+        fi
+}
+
+
+start() {
+        KILL_APPNotification
+	OpRole=`uci get system.main.operation_role`
+	if [ "$OpRole" = "controller" ] ; then
+		/usr/sbin/APPNotification -w 10 -f 60 &
+	fi
+}
+
+stop() {
+	KILL_APPNotification
+}
+ 
+restart() {
+        stop
+        start
+}
+
+case "$1" in
+        "start")
+                start
+        ;;
+        "restart")
+                restart
+        ;;
+        "stop")
+                stop
+        ;;
+        *)
+        echo "Invalid command: $0 $1"
+        echo "example:"
+        echo "         1.$0 start"
+        echo "         2.$0 restart "
+        echo "         3.$0 stop "
+        ;;
+esac

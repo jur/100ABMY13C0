@@ -1,0 +1,289 @@
+--- batman-adv-2018.3/Makefile	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/Makefile	2018-11-08 10:39:18.830693971 +0800
+@@ -31,6 +31,8 @@
+ export CONFIG_BATMAN_ADV_MCAST=y
+ # B.A.T.M.A.N. V routing algorithm (experimental):
+ export CONFIG_BATMAN_ADV_BATMAN_V=y
++# ZyXEL co. fastmesh:
++export CONFIG_BATMAN_ADV_FASTBAT=y
+ 
+ PWD:=$(shell pwd)
+ KERNELPATH ?= /lib/modules/$(shell uname -r)/build
+@@ -76,6 +78,7 @@
+ 	CONFIG_BATMAN_ADV_NC=$(CONFIG_BATMAN_ADV_NC) \
+ 	CONFIG_BATMAN_ADV_MCAST=$(CONFIG_BATMAN_ADV_MCAST) \
+ 	CONFIG_BATMAN_ADV_BATMAN_V=$(CONFIG_BATMAN_ADV_BATMAN_V) \
++	CONFIG_BATMAN_ADV_FASTBAT=$(CONFIG_BATMAN_ADV_FASTBAT) \
+ 	INSTALL_MOD_DIR=updates/
+ 
+ all: config
+--- batman-adv-2018.3/gen-compat-autoconf.sh	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/gen-compat-autoconf.sh	2018-11-08 10:39:56.186693892 +0800
+@@ -59,6 +59,7 @@
+ gen_config 'CONFIG_BATMAN_ADV_MCAST' ${CONFIG_BATMAN_ADV_MCAST:="y"} >> "${TMP}"
+ gen_config 'CONFIG_BATMAN_ADV_NC' ${CONFIG_BATMAN_ADV_NC:="n"} >> "${TMP}"
+ gen_config 'CONFIG_BATMAN_ADV_BATMAN_V' ${CONFIG_BATMAN_ADV_BATMAN_V:="y"} >> "${TMP}"
++gen_config 'CONFIG_BATMAN_ADV_FASTBAT' ${CONFIG_BATMAN_ADV_FASTBAT:="y"} >> "${TMP}"
+ 
+ # only regenerate compat-autoconf.h when config was changed
+ diff "${TMP}" "${TARGET}" > /dev/null 2>&1 || cp "${TMP}" "${TARGET}"
+--- batman-adv-2018.3/net/batman-adv/Makefile	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/Makefile	2018-11-08 10:40:22.098693838 +0800
+@@ -45,3 +45,4 @@
+ batman-adv-y += tp_meter.o
+ batman-adv-y += translation-table.o
+ batman-adv-y += tvlv.o
++batman-adv-$(CONFIG_BATMAN_ADV_FASTBAT) += fast_batman.o
+--- batman-adv-2018.3/net/batman-adv/bat_v_ogm.c	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/bat_v_ogm.c	2018-11-08 10:44:25.526693323 +0800
+@@ -405,6 +405,10 @@
+ 		batadv_neigh_ifinfo_put(neigh_ifinfo);
+ }
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++extern void fastbat_check_orig_and_setup_dirty(struct batadv_orig_node *, struct batadv_neigh_node *);
++#endif
++
+ /**
+  * batadv_v_ogm_metric_update() - update route metric based on OGM
+  * @bat_priv: the bat priv with all the soft interface information
+@@ -573,6 +577,18 @@
+ 		    router_throughput >= neigh_throughput)
+ 			goto out;
+ 	}
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	/* for debug */
++	/*printk(KERN_ERR "[B@TMAN] (r-throughput)%d (n-throughput)%d\n", router_throughput, neigh_throughput);
++	printk(KERN_ERR "[B@TMAN] src:%pM dst:%pM\n", ethhdr->h_source, ethhdr->h_dest);
++	if(if_incoming)
++		printk(KERN_ERR "[B@TMAN] incoming dev:%s\n", if_incoming->net_dev->name);
++	if(if_outgoing)
++		printk(KERN_ERR "[B@TMAN] outgoing dev:%s\n", if_outgoing->net_dev->name);*/
++
++	/* alter orig's dirty flag */
++	fastbat_check_orig_and_setup_dirty(orig_node, neigh_node);
++#endif
+ 
+ 	batadv_update_route(bat_priv, orig_node, if_outgoing, neigh_node);
+ out:
+--- batman-adv-2018.3/net/batman-adv/debugfs.c	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/debugfs.c	2018-11-08 10:47:43.610692905 +0800
+@@ -169,6 +169,17 @@
+ }
+ #endif
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++extern int fastbat_show_all_bats(struct seq_file *, void *);
++
++static int fastbat_bats_open
++(struct inode *inode, 
++ struct file *file)
++{
++	return	single_open(file, fastbat_show_all_bats, NULL);
++}
++#endif
++
+ #define BATADV_DEBUGINFO(_name, _mode, _open)		\
+ struct batadv_debuginfo batadv_debuginfo_##_name = {	\
+ 	.attr = {					\
+@@ -214,6 +225,9 @@
+ #ifdef CONFIG_BATMAN_ADV_MCAST
+ static BATADV_DEBUGINFO(mcast_flags, 0444, batadv_mcast_flags_open);
+ #endif
++#ifdef CONFIG_BATMAN_ADV_FASTBAT
++static BATADV_DEBUGINFO(bats, 0444, fastbat_bats_open);
++#endif
+ 
+ static struct batadv_debuginfo *batadv_mesh_debuginfos[] = {
+ 	&batadv_debuginfo_neighbors,
+@@ -234,6 +248,9 @@
+ #ifdef CONFIG_BATMAN_ADV_MCAST
+ 	&batadv_debuginfo_mcast_flags,
+ #endif
++#ifdef CONFIG_BATMAN_ADV_FASTBAT
++	&batadv_debuginfo_bats, 
++#endif
+ 	NULL,
+ };
+ 
+--- batman-adv-2018.3/net/batman-adv/main.c	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/main.c	2018-11-08 10:55:20.890691939 +0800
+@@ -140,6 +140,27 @@
+ 	batadv_tt_cache_destroy();
+ }
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++struct	br_fastbat_ops {
++	int (*fastbat_dispatch)(struct sk_buff *skb, FAST_BAT *bat, u16 vlan, u16 batman);
++	int (*fastbat_filter_input_packet)(struct sk_buff *skb, u16 *vlan, u16 *batman);
++	FAST_BAT *(*fastbat_list_search)(u8 *src, u8 *dst);
++	struct ethhdr *(*fastbat_grab_real_ethhdr)(struct sk_buff *skb);
++	void (*fastbat_show_raw_data)(u8 *addr, u8 len);
++	FAST_LOCAL (*fastbat_local_search)(u8 *dest);
++	int (*fastbat_chk_and_add_local_entry)(struct sk_buff *, struct net_device *);
++};
++LIST_HEAD(fastbat_local_head);
++extern struct br_fastbat_ops _br_fastbat_ops;
++extern int fastbat_filter_input_packet(struct sk_buff *, u16 *, u16 *);
++extern int fastbat_dispatch(struct sk_buff *, FAST_BAT *, u16, u16);
++extern FAST_BAT *fastbat_list_search(u8 *, u8 *);
++extern struct ethhdr *fastbat_grab_real_ethhdr(struct sk_buff *);
++extern void fastbat_show_raw_data(u8 *, u8);
++extern FAST_LOCAL *fastbat_local_search(u8 *);
++extern int fastbat_chk_and_add_local_entry(struct sk_buff *, struct net_device *);
++#endif
++
+ /**
+  * batadv_mesh_init() - Initialize soft interface
+  * @soft_iface: netdev struct of the soft interface
+@@ -186,6 +207,27 @@
+ 	INIT_HLIST_HEAD(&bat_priv->softif_vlan_list);
+ 	INIT_HLIST_HEAD(&bat_priv->tp_list);
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	{
++		/*int	idx=0;
++		for(; idx<FAST_BAT_LIST_LEN; idx++)
++			INIT_HLIST_HEAD(&bats[idx]);*/
++
++		if((&_br_fastbat_ops != NULL)/* && (&_br_fastbat_ops.fastbat_dispatch != NULL)*/) {
++			printk(KERN_ERR "[F@STBAT] alter callback func addr of br!\n");
++			_br_fastbat_ops.fastbat_dispatch=fastbat_dispatch;
++			_br_fastbat_ops.fastbat_filter_input_packet=fastbat_filter_input_packet;
++			_br_fastbat_ops.fastbat_list_search=fastbat_list_search;
++			_br_fastbat_ops.fastbat_grab_real_ethhdr=fastbat_grab_real_ethhdr;
++			_br_fastbat_ops.fastbat_show_raw_data=fastbat_show_raw_data;
++			_br_fastbat_ops.fastbat_local_search=fastbat_local_search;
++			_br_fastbat_ops.fastbat_chk_and_add_local_entry=fastbat_chk_and_add_local_entry;
++		} else {
++			printk(KERN_ERR "[F@STBAT] Cannot insert F@STBAT callback func!!!\n");
++		}
++	}
++#endif
++
+ 	ret = batadv_v_mesh_init(bat_priv);
+ 	if (ret < 0)
+ 		goto err;
+--- batman-adv-2018.3/net/batman-adv/main.h	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/main.h	2018-11-08 10:56:21.434691811 +0800
+@@ -227,6 +227,10 @@
+ 
+ #include "types.h"
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++#include "fast_batman.h"
++#endif
++
+ struct net_device;
+ struct packet_type;
+ struct seq_file;
+--- batman-adv-2018.3/net/batman-adv/routing.c	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/routing.c	2018-11-08 10:26:57.146695538 +0800
+@@ -976,6 +976,41 @@
+ 	int ret = NET_RX_DROP;
+ 	bool is4addr, is_gw;
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	{
++		extern FAST_LOCAL *fastbat_local_search(u8 *);
++		extern struct ethhdr *fastbat_grab_real_ethhdr(struct sk_buff *);
++		extern int fastbat_xmit_peel(struct sk_buff *, FAST_LOCAL *);
++		struct ethhdr   *real, 
++						*ethhdr;
++		FAST_LOCAL		*local;
++		int				retval;
++		int				hdr_len=0;
++		
++		if((ethhdr=eth_hdr(skb)) == NULL)
++			goto	DONOTHING;
++
++		if((ethhdr->h_proto!=ETH_P_BATMAN) && (ethhdr->h_proto!=ETH_P_8021Q)) {
++			goto	DONOTHING;
++		}
++
++		//printk(KERN_ERR "[B@TMAN] (src)%pM (dst)%pM\n", ethhdr->h_source, ethhdr->h_dest);
++		real=fastbat_grab_real_ethhdr(skb);
++		if(real == NULL)
++			goto	DONOTHING;
++		//else
++			// printk(KERN_ERR "[B@TMAN] - real - (src)%pM (dst)%pM\n", real->h_source, real->h_dest);
++
++		local=fastbat_local_search(real->h_dest);
++		if(local != NULL) {
++			retval=fastbat_xmit_peel(skb, local);
++			if(retval >= 0)
++				return	NET_RX_SUCCESS;
++		}
++	}
++DONOTHING:
++#endif
++
+ 	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+ 	is4addr = unicast_packet->packet_type == BATADV_UNICAST_4ADDR;
+ 	/* the caller function should have already pulled 2 bytes */
+--- batman-adv-2018.3/net/batman-adv/send.c	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/send.c	2018-11-08 11:00:14.982691318 +0800
+@@ -54,6 +54,10 @@
+ 
+ static void batadv_send_outstanding_bcast_packet(struct work_struct *work);
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++extern int fastbat_chk_and_add_list_entry(struct sk_buff *, struct net_device *, struct net_device *, u8 *);
++#endif
++
+ /**
+  * batadv_send_skb_packet() - send an already prepared packet
+  * @skb: the packet to send
+@@ -117,6 +121,9 @@
+ 	 * congestion and traffic shaping, it drops and returns NET_XMIT_DROP
+ 	 * (which is > 0). This will not be treated as an error.
+ 	 */
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	fastbat_chk_and_add_list_entry(skb, hard_iface->soft_iface, hard_iface->net_dev, dst_addr);
++#endif
+ 	ret = dev_queue_xmit(skb);
+ 	return net_xmit_eval(ret);
+ send_skb_err:
+@@ -124,6 +131,18 @@
+ 	return NET_XMIT_DROP;
+ }
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++void	check_ethhdr
++(struct sk_buff *skb)
++{
++	struct ethhdr	*ethhdr;
++	ethhdr=eth_hdr(skb);
++	if(ethhdr != NULL)
++		printk("[B@TMAN] (proto=%x) (DST=%pM) (SRC=%pM)\n", 
++			ethhdr->h_proto, ethhdr->h_dest, ethhdr->h_source);
++}
++#endif
++
+ /**
+  * batadv_send_broadcast_skb() - Send broadcast packet via hard interface
+  * @skb: packet to be transmitted (with batadv header and no outer eth header)
+--- batman-adv-2018.3/net/batman-adv/translation-table.c	2018-09-14 16:55:59.000000000 +0800
++++ batman-adv-2018.3/net/batman-adv/translation-table.c	2018-11-08 11:01:57.290691102 +0800
+@@ -2338,6 +2338,10 @@
+ 	}
+ }
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++extern void fastbat_check_client_and_setup_dirty(struct batadv_orig_node *, unsigned char *);
++#endif
++
+ /**
+  * batadv_tt_global_del() - remove a client from the global table
+  * @bat_priv: the bat priv with all the soft interface information
+@@ -2360,6 +2364,10 @@
+ 	if (!tt_global_entry)
+ 		goto out;
+ 
++#if	defined(CONFIG_BATMAN_ADV_FASTBAT)
++	fastbat_check_client_and_setup_dirty(orig_node, addr);
++#endif
++
+ 	if (!roaming) {
+ 		batadv_tt_global_del_orig_node(bat_priv, tt_global_entry,
+ 					       orig_node, message);

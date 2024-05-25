@@ -1,0 +1,241 @@
+#!/bin/sh
+############ Set debug flage ############
+##         1:echo show                 ##
+##         2:echo to console           ##
+##         3:echo to file              ##
+#########################################
+#DEBUG_FLAG=2
+
+. /sbin/functions.sh
+include /sbin
+GETMIB="flash get"
+eval `$GETMIB OP_MODE`
+ 
+DEBUG(){
+        [ "$DEBUG_FLAG" == "1" ] && echo "###zyxel_event_trigger Debug log######/// $@ ////////" 
+        [ "$DEBUG_FLAG" == "2" ] && echo "###zyxel_event_trigger Debug log######/// $@ ////////" > /dev/console
+        [ "$DEBUG_FLAG" == "3" ] && echo "###zyxel_event_trigger Debug log######/// $@ ////////" >> /tmp/EVENT_debug_log
+}
+
+help(){
+	echo "######ZyXEL EVENT TRIGGER script V0.1######"
+	echo "Usage:      zyxel_event_trigger <Type> <Option>"
+	echo "Type:   	  eth0, eth1"
+	echo "Option:     UP, DOWN"
+	exit 0
+}
+
+CLEAN_IPTABLES() {
+	iptables -F;iptables -X;iptables -Z
+	iptables -F -t mangle;iptables -X -t mangle;iptables -Z -t mangle
+	iptables -F -t nat;iptables -X -t nat;iptables -Z -t nat
+	iptables -F -t raw;iptables -X -t raw;iptables -Z -t raw
+	iptables -P INPUT DROP; iptables -P FORWARD DROP
+}
+
+ipv6_service() {
+    echo "wanprofile IP mode: $1"
+    if [ "$1" == "IPv4_Only" ]; then
+        echo "1" > /proc/sys/net/ipv6/conf/eth1/disable_ipv6
+        if [ $(uci get network.wan.proto) == "pppoe" ]; then
+            #Also disable ppp0 interface ipv6
+            echo "1" > /proc/sys/net/ipv6/conf/ppp0/disable_ipv6
+        fi
+        /etc/init.d/RA_status stop
+        /etc/init.d/dhcp6c stop
+        /etc/init.d/dhcp6s stop
+        /etc/init.d/radvd stop
+    else
+        # Dual Stack and IPv6 Only
+        echo "0" > /proc/sys/net/ipv6/conf/eth1/disable_ipv6
+        if [ $(uci get network.wan.proto) == "pppoe" ]; then
+            #Also enable ppp0 interface ipv6
+            echo "0" > /proc/sys/net/ipv6/conf/ppp0/disable_ipv6
+        fi
+        /etc/init.d/RA_status restart
+        /etc/init.d/dhcp6c restart
+        #Remove dhcp6s, radvd restart since it was starting by dhcp6c
+    fi
+}
+
+ethernet_UP () {
+	if [ "$3" != "BRIDGE" ]; then
+	[ "$OP_MODE" == "0" ] && {
+		local wan_proto=`uci get network.wan.proto`
+		if [ "$wan_proto" == "pppoe" ] || [ "$wan_proto" == "pptp" ]; then
+			##resend ipv6 packet
+			local WAN="ppp0"
+		else
+			local WAN=`uci get network.wan.ifname`
+		fi
+		# Checking Wan is IPv4 only or Dual stack
+		ipv6_service $(uci get network.wan.IP_version)
+
+		local wan_ip=$(ifconfig $WAN | egrep -o 'inet addr:[0-9.]*' | grep -o "[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}")
+		[ -f /var/wan_IP_trigger ] && [ -n $wan_ip ] && {
+			[ "$1" == "eth1" ] && {
+				if [ "$wan_proto" == "static" ]; then
+					[ -f /var/static_running ] && {
+						exit 0
+					} || {
+						touch /var/static_running
+					}
+				fi
+				autoIPchange=$(uci get network.general.auto_ip_change)
+				if [ $autoIPchange == "1" ]; then
+						echo "Running auto IP change"
+						/usr/sbin/zyxel_auto_ip_change
+				fi
+				#Remove the file only used for zyxel_auto_ip_change
+				if [ -f /var/wan_gateway ]; then
+						rm /var/wan_gateway
+				fi
+				#Fix after ip auto changed but iptables rules are not configured.
+				#[ -f /var/auto_ipchange ] && {
+				#	rm /var/auto_ipchange
+				#	exit 0
+				#}
+				echo "1" > /var/WAN_trigger_flag
+
+				reload_dns wan network
+
+				lock /tmp/.iptables_filter.lock
+				/etc/init.d/miniupnpd save
+				CLEAN_IPTABLES
+				/etc/init.d/igmpproxy start
+				/etc/init.d/miniupnpd start
+				/etc/init.d/miniupnpd restore
+				/etc/init.d/myZyXELcloud-Agent restart
+				/etc/init.d/firewall reload 2> /dev/null
+				/etc/init.d/nat apply
+				/etc/init.d/lighttpd_init restart
+				/etc/init.d/parentalControl restart
+				lock -u /tmp/.iptables_filter.lock
+
+				[ -f /var/WAN_trigger_flag ] && {
+					rm /var/WAN_trigger_flag
+				}
+				
+				/usr/sbin/check_update_sys_dns
+				echo "After WAN IP trigger, and setting is finished !!!" > /dev/console
+				DEBUG "-------After WAN IP trigger, and setting is finished !!!----------"
+				[ -f /var/wan_IP_trigger ] && {
+					rm /var/wan_IP_trigger
+					[ -f /var/static_running ] && rm /var/static_running
+				}
+			}
+		}
+		DEBUG "-------Router MODE $1 run UP----------"
+	}
+	fi
+
+	local role=$(uci get system.main.operation_role)
+	[ "$OP_MODE" == "1" ] && {
+		[ -f /config/uci/network ] && {
+			echo "$1" > /var/Bridge_trigger_port
+			if [ "$role" == "controller" ]; then
+				local proto_type=`uci get network.br0.proto`
+				if [ "$proto_type" == "dhcp" ]; then
+					[ -f /var/IP_trigger_port ] || /usr/sbin/zyxel_udhcpc_reload &
+				fi
+			else
+				echo "Do not reload udhcpc since it is started"
+			fi
+		}
+		#Fix Guest wifi unable to access some websites issue.
+		lock /tmp/.iptables_filter.lock
+		insmod /lib/modules/3.10.90/kernel/net/netfilter/xt_TCPMSS.ko 2>&- >&-
+		insmod /lib/modules/3.10.90/kernel/net/netfilter/xt_tcpmss.ko 2>&- >&-
+		iptables -t mangle -F FORWARD
+		iptables -t mangle -I FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+		lock -u /tmp/.iptables_filter.lock
+		/usr/sbin/check_update_sys_dns
+		DEBUG "-------Bridge MODE $1 run UP----------"
+	}
+	/sbin/time_daemon >/dev/null 2>&1 &
+}
+
+ethernet_DOWN () {
+	[ "$OP_MODE" == "0" ] && {
+		[ "$1" == "eth1" ] && {
+			[ -f /var/wan_IP_trigger ] && {
+				echo "-------Router MODE $1 run DOWN that is restarting.----------" > /dev/console
+			} || {
+				local wan_proto=`uci get network.wan.proto`
+				if [ "$wan_proto" == "dhcp" ]; then
+					/usr/share/udhcpc/eth1.sh deconfig
+					#Remove wan interface eth1 IPv4 / IPv6
+					ip -6 addr del $(ifconfig eth1 | awk '/Scope:Global/{print $3}' | awk NR==1) dev eth1
+					ip -6 addr del $(ifconfig eth1 | awk '/Scope:Global/{print $3}' | awk NR==2) dev eth1
+					/etc/init.d/network restart &
+				fi
+				#No matter pppoe or dhcp or static IP, if we have IPv6 IP address in br0, remove it when wan interface is down.
+				echo '####################################### remove br0 IPv6 address'
+				ip -6 addr del $(ifconfig br0 | awk '/Scope:Global/{print $3}' | awk NR==1) dev br0
+				ip -6 addr del $(ifconfig br0 | awk '/Scope:Global/{print $3}' | awk NR==2) dev br0
+				echo '####################################### remove br0 IPv6 address DONE'
+				/etc/init.d/RA_status restart
+				/etc/init.d/dhcp6c stop
+				/etc/init.d/dhcp6s stop
+				/etc/init.d/radvd stop
+			}
+		}
+		DEBUG "-------Router MODE $1 run DOWN----------"
+	}
+
+	local role=$(uci get system.main.operation_role)
+	[ "$OP_MODE" == "1" ] && {
+		if [ "$role" == "controllee" ]; then
+			[ -f /config/uci/network ] && {
+			local proto_type=`uci get network.br0.proto`
+			if [ "$proto_type" == "dhcp" ]; then
+				#check mesh link status
+				MESH_LINK=$(sed -n '3,$p' /tmp/batman_debug/batman_adv/bat0/neighbors | awk -f /usr/sbin/chk_mesh_link.awk)
+				echo "All mesh connection state is: $MESH_LINK"
+				if [ "$MESH_LINK" == "ALL_DOWN" ]; then
+					/usr/sbin/zyxel_udhcpc_reload &
+				fi
+			fi
+			}
+		elif [ "$role" == "controller" ]; then
+			[ -f /var/IP_trigger_port ] && {
+			local ports=$(cat /var/IP_trigger_port)
+			if [ "$1" == "$ports" ]; then
+				/usr/share/udhcpc/br0.sh deconfig
+			fi
+		}
+		fi
+		DEBUG "-------Bridge $role MODE $1 run DOWN----------"
+	}
+}
+
+ethernet(){
+	case $2 in
+		UP)
+			DEBUG "-------$1 run UP----------"
+			ethernet_UP $@
+		;;
+		DOWN)
+			DEBUG "-------$1 run DOWN----------"
+			ethernet_DOWN $@
+		;;
+		*)
+			help
+		;;
+	esac
+}
+
+lock /tmp/.zyxel_event_trigger
+
+case $1 in
+	eth0|eth1)
+		ethernet $@ &
+	;;
+	*)
+		help
+	;;
+esac
+
+lock -u /tmp/.zyxel_event_trigger
+
+exit 0

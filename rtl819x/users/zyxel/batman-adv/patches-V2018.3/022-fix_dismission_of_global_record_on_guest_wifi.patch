@@ -1,0 +1,51 @@
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 17:49:42.794456906 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 17:57:49.582455877 +0800
+@@ -406,7 +406,7 @@
+ 		xxxFASTBAT_DBG_MSG(" prohibit bat iface!!!\n");
+ 		goto    RETN;
+ 	}
+-	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] %pM %s\n", ethhdr->h_dest, out->name);
++	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] local bat - %pM %s\n", ethhdr->h_dest, out->name);
+ 
+ 	/* search local list */
+ 	local=fastbat_local_search(ethhdr->h_dest);
+@@ -424,16 +424,23 @@
+ 	}
+ #if	defined(BYPASS_GUEST_LAN)
+ 	/* check vlan type on global bat list */
++	/* 1. check from global bat record, however, it would failed at some situtations.
++	 *  a) local would be created be4 global due to disconnection or else
++	 *  b) global would be deleted due to commit 41923bf0
++	 * 2. check output dev name, ie. verdict string "-va" with outdev(wlan0-va0/wlan2-va0)
++	 */
+ 	{
+-		int			idx=0;
+-		FAST_BAT	*bat;
+-		for(; idx<FAST_BAT_LIST_LEN; idx++) {
+-			hlist_for_each_entry(bat, &bats[idx], list) {
+-				if((bat->vlan == 2) && !memcmp(bat->src, ethhdr->h_dest, ETH_ALEN)) {
++		char		va_string[]="-va";
++		//int			idx=0;
++		//FAST_BAT	*bat;
++		//for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		//	hlist_for_each_entry(bat, &bats[idx], list) {
++		//		if((bat->vlan == 2) && !memcmp(bat->src, ethhdr->h_dest, ETH_ALEN)) {
++		if(!memcmp((char *)out+5, va_string, 3)) {
+ 					vlan=2;
+ 					xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] vlan inside local!!!\n");
+-				}
+-			}
++		//		}
++		//	}
+ 		}
+ 	}
+ #endif
+@@ -692,7 +699,7 @@
+ #endif
+ 	}
+ 
+-	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list!\n");
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list (%pM)=>(%pM)!\n", bat->src, bat->dst);
+ 	//fastbat_show_list_entry(fastbat_hash_calculate(bat->src, bat->dst));
+ 	return	0;
+ FREE:

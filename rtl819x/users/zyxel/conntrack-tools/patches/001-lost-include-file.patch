@@ -1,0 +1,12 @@
+diff --git a/src/parse.c b/src/parse.c
+index 7e60597..6c5ac5d 100644
+--- a/src/parse.c
++++ b/src/parse.c
+@@ -16,6 +16,7 @@
+  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+  */
+ 
++#include <stddef.h>
+ #include "network.h"
+ 
+ #include <libnetfilter_conntrack/libnetfilter_conntrack.h>

@@ -1,0 +1,155 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-06-29 11:19:25.838780766 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-06-29 11:16:42.658781111 +0800
+@@ -9,6 +9,8 @@
+ #include <linux/types.h>
+ //#include "packet.h"
+ #include <linux/etherdevice.h>
++#include <linux/ip.h>
++#include <linux/tcp.h>
+ #include "soft-interface.h"
+ #include "types.h"
+ #include "hash.h"
+@@ -75,6 +77,7 @@
+ FAST_LOCAL	*fastbat_local_search(u8 *);
+ int			fastbat_chk_and_add_local_entry(struct sk_buff *, struct net_device *);
+ void		fastbat_purge_dirty_entry(void *);
++void		fastbat_reset_header(void *);
+ #endif	//FASTBAT_BATMAN_H
+ 
+ #if	0
+--- batman-adv-2018.0/net/batman-adv/main.c	2018-06-29 11:19:25.834780766 +0800
++++ batman-adv-2018.0/net/batman-adv/main.c	2018-06-26 18:31:04.983273599 +0800
+@@ -149,6 +149,7 @@
+ 	void (*fastbat_show_raw_data)(u8 *addr, u8 len);
+ 	FAST_LOCAL (*fastbat_local_search)(u8 *dest);
+ 	int (*fastbat_chk_and_add_local_entry)(struct sk_buff *, struct net_device *);
++	void (*fastbat_reset_header)(void *);
+ };
+ LIST_HEAD(fastbat_local_head);
+ struct delayed_work	fastbat_work;
+@@ -162,6 +163,7 @@
+ extern FAST_LOCAL *fastbat_local_search(u8 *);
+ extern int fastbat_chk_and_add_local_entry(struct sk_buff *, struct net_device *);
+ extern void fastbat_purge_dirty_entry(void *);
++extern void fastbat_reset_header(void *);
+ #endif
+ 
+ /**
+@@ -230,6 +232,7 @@
+ 			_br_fastbat_ops.fastbat_show_raw_data=fastbat_show_raw_data;
+ 			_br_fastbat_ops.fastbat_local_search=fastbat_local_search;
+ 			_br_fastbat_ops.fastbat_chk_and_add_local_entry=fastbat_chk_and_add_local_entry;
++			_br_fastbat_ops.fastbat_reset_header=fastbat_reset_header;
+ 		} else {
+ 			printk(KERN_ERR "[F@STBAT] Cannot insert F@STBAT callback func!!!\n");
+ 		}
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-29 11:19:25.838780766 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-29 13:37:22.842763282 +0800
+@@ -1219,10 +1219,10 @@
+ 	skb->dev=bat->net_dev;
+ 	skb->protocol=htons(ETH_P_BATMAN);
+ #if	0
+-	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit ethhdr(%p) data(%p) head(%p) mac(%p)\n", 
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit ethhdr(%p) data(%p) head(%p) mac(%p)\n", 
+ 		ethhdr, skb->data, skb->head, skb_mac_header(skb));
+-	//fastbat_show_raw_data((void *)skb->data, 63);
+-	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit (s)%pM (d)%pM\n", ethhdr->h_source, ethhdr->h_dest);
++	fastbat_show_raw_data((void *)skb->data, 63);
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit (s)%pM (d)%pM\n", ethhdr->h_source, ethhdr->h_dest);
+ 	FASTBAT_DBG_MSG("[F@STBAT] wrap xmit(%s VS %s)!\n", skb->dev->name, bat->net_dev->name);
+ #endif
+ 	retval=dev_queue_xmit(skb);
+@@ -1274,16 +1274,20 @@
+ 	} else if(u->packet_type == BATADV_UNICAST_4ADDR) {
+ 		bat_len=sizeof(struct batadv_unicast_4addr_packet);
+ 	} else {
+-		FASTBAT_ERR_MSG(" this packet type isn't accepted!\n");
++		FASTBAT_ERR_MSG(" don't accept this packet type!\n");
+ 		goto	ERR;
+ 	}
++
+ 	ethhdr=(struct ethhdr *)((u8 *)u + bat_len);
+ 	/* alter data ptr to real ethernet header */
+-	skb_pull_rcsum(skb, bat_len);
++	skb_pull(skb, bat_len);
+ 	skb_reset_mac_header(skb);
+ 
+ 	skb->dev=local->output_dev;
+ 	skb->protocol=htons(ethhdr->h_proto);
++#if	0//1
++	fastbat_show_raw_data((void *)skb->data, 63);
++#endif
+ 	retval=dev_queue_xmit(skb);
+ #if		(PUSH_THE_PACE == 0)
+ 	local->last_seen=jiffies;
+@@ -1292,10 +1296,69 @@
+ 	return	retval;
+ 
+ ERR:
+-	xxxFASTBAT_DBG_MSG(" Xmit of peel failed! Back to batman %p %p\n", skb->data, skb->mac_header);
++	FASTBAT_DBG_MSG(" Xmit of peel failed! Back to batman %p %p\n", skb->data, skb->mac_header);
+ 	return	retval;
+ }
+ 
++/* input: skb from br_dev_xmit() 
++ * fastbat_reset_header(): correct L2/L3/L4 ptr of skb and calculate checksum
++ * TODO: ipv6
++ */
++void	fastbat_reset_header
++(void *d)
++{
++	struct sk_buff	*skb=d;
++	struct iphdr    *iphdr;
++	struct tcphdr	*tcphdr;
++	struct ethhdr	*ethhdr, 
++					*real_ethhdr;
++	struct batadv_unicast_packet	*u;
++	int		hdrlen=0, 
++			batlen=0;
++
++	ethhdr=eth_hdr(skb);
++	if(ethhdr->h_proto == ETH_P_BATMAN) {
++		FASTBAT_ERR_MSG(" Shouldn't wrap batman here(%x)!\n", ethhdr->h_proto);
++		goto	ERR;
++	}
++	/* just handle tcp over ipv4 */
++	if(ethhdr->h_proto == ETH_P_IP) {
++		iphdr=(struct iphdr *)((u8 *)skb->data);
++		if(iphdr->protocol == IPPROTO_TCP) {
++#if	0//debug
++			FASTBAT_DBG_RAW_MSG("[F@STBAT] L2:\n");
++			fastbat_show_raw_data((void *)ethhdr, 49);
++			FASTBAT_DBG_RAW_MSG("[F@STBAT] L3:\n");
++			fastbat_show_raw_data((void *)skb->data, 36);
++#endif
++			skb_reset_network_header(skb);
++			skb_pull(skb, iphdr->ihl*4);
++			skb_reset_transport_header(skb);
++
++			/* Calculate Checksum - since WSR30 doesn't support hw checksum, take it off */
++			if(skb->ip_summed == CHECKSUM_PARTIAL) {
++				if(/*!(features & NETIF_F_ALL_CSUM) &&*/skb_checksum_help(skb)) {
++					FASTBAT_DBG_RAW_MSG("[F@STBAT] csum(%x) failed!\n", 
++						skb->data + skb->csum_offset);
++					goto	ERR;
++				}
++			}
++#if	0//debug
++			FASTBAT_DBG_RAW_MSG("[F@STBAT] start:%x offset:%d\n", 
++				skb->csum_start, skb->csum_offset);
++			FASTBAT_DBG_RAW_MSG("[F@STBAT] L4:\n");
++			fastbat_show_raw_data((void *)skb->data, 33);
++			FASTBAT_DBG_RAW_MSG("[F@STBAT] Ori:%x state:%x\n", skb->csum, skb->ip_summed);
++#endif
++			/* roll back to original location */
++			skb_push(skb, iphdr->ihl*4);
++		}
++	}
++ERR:
++	return;
++}
++EXPORT_SYMBOL(fastbat_reset_header);
++
+ /* copy from bat->bat_data to skb
+  * src: FAST_BAT *
+  * dst: struct batadv_unicast_packet *

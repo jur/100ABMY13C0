@@ -1,0 +1,18 @@
+#!/bin/sh
+
+. /sbin/functions.sh
+
+config_load ap_steer
+
+# Check whether AP Steering must be active
+config_get enable global enable
+
+# Check whether it is actually running
+if [ $enable == 1 ]; then
+        aps_pid=$(ps | pgrep ap_steer)
+
+        if [ -z $aps_pid ]; then
+                echo "Restarting Ap Steering ..."
+                /etc/init.d/ap_steer start
+        fi
+fi

@@ -1,0 +1,100 @@
+#!/bin/sh 
+
+filter() {
+	ssh_port=`uci get firewall.remote_ssh.port`
+	ssh_inf=`uci get firewall.remote_ssh.interface`
+	ssh_client_check=`uci get firewall.remote_ssh.client_check`
+	ssh_client_addr=`uci get firewall.remote_ssh.client_addr`
+	
+	
+	if [ "on" = "$1" ]; then
+		filter_type=" -I "
+	else
+		filter_type=" -D "
+	fi
+	
+	
+#	/usr/sbin/iptables -t filter $filter_type INPUT -p tcp --dport ${ssh_port:-21} -j ACCEPT
+
+		inf_cmd=""
+		
+		## insert DROP rule first 
+		case $ssh_inf in
+			0)
+			#disable
+			if [ "$ssh_client_check" = "0" ]; then
+				exit 0
+			fi
+			;;
+			2)
+			#lan
+			if [ "$ssh_client_check" = "0" ]; then
+				inf_cmd=" ! -i br0 "
+			fi
+			;;
+			3)
+			#wan
+			if [ "$ssh_client_check" = "0" ]; then
+				inf_cmd=" -i br0 "
+			fi
+			;;
+		esac
+		
+		if [ $ssh_inf -ne 1 -o $ssh_client_check -ne 0 ]; then
+			iptables -t filter $filter_type RMMG_SSH_INPUT $inf_cmd -p tcp --dport ${ssh_port:-21} -j DROP 2> /dev/null
+		fi
+		case $ssh_inf in
+			1)
+			# lan and wan
+			inf_cmd=""
+			;;
+			2)
+			#lan
+			inf_cmd=" -i br0 "
+			;;
+			3)
+			#wan
+			#lan
+			inf_cmd=" ! -i br0 "
+			;;
+		esac
+
+
+		if [ "$ssh_client_check" = "0" ]; then
+			addr_cmd=""
+		else
+			addr_cmd=" -s $ssh_client_addr "
+		fi
+		iptables -t filter $filter_type RMMG_SSH_INPUT $inf_cmd $addr_cmd -p tcp --dport ${ssh_port:-21} -j ACCEPT 2> /dev/null
+}
+
+start () {
+	iptables -F RMMG_SSH_INPUT 2> /dev/null
+	iptables -X RMMG_SSH_INPUT 
+	iptables -N RMMG_SSH_INPUT
+	filter "on"
+	
+}
+
+stop() {
+	filter "off"
+	
+}
+
+case "$1" in
+
+	"start" )
+		start
+		;;
+	"stop" )
+		stop
+		;;
+
+esac
+
+
+
+
+
+
+

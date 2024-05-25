@@ -1,0 +1,98 @@
+#!/bin/sh
+
+. /sbin/functions.sh
+
+PROG=/usr/sbin/dropbear
+KEYGEN=/usr/bin/dropbearkey
+NAME=dropbear
+WORK_DIR="/config"
+PID_FILE="/var/run/${NAME}.pid"
+
+dropbear_instance()
+{
+	local section="$1"
+	local enabled
+	local PasswordAuth
+	local RootPasswordAuth
+	local Port
+
+	config_get_bool enabled "${section}" enable 0
+	config_get_bool PasswordAuth ${section} PasswordAuth 1
+	config_get_bool RootPasswordAuth ${section} RootPasswordAuth 1
+	config_get Port ${section} Port "22"
+	#config_get BannerFile dropbear BannerFile
+
+	if [ "$enabled" = "0" ]; then
+		echo "dropbear not enable"
+			return 1
+	fi
+
+
+	params=""
+	[ "${PasswordAuth}" -eq 0 ] && params=" $params -s"
+	[ "${RootPasswordAuth}" -eq 0 ] && params=" $params -g"
+	[ -n "${BannerFile}" ] && params=" $params -b ${BannerFile}"
+	[ -n "${Port}" ] && params=" $params -p ${Port}"
+	#[ "${IdleTimeout}" -ne 0 ] && params=" $params -I ${IdleTimeout}"
+	#[ "${SSHKeepAlive}" -ne 0 ] && params=" $params -K ${SSHKeepAlive}"
+
+	${PROG} -r ${WORK_DIR}/dropbear/dropbear_rsa_host_key ${params}
+}
+
+keygen()
+{
+	mkdir -p ${WORK_DIR}/dropbear
+	chmod 0700 ${WORK_DIR}/dropbear
+
+	for keytype in rsa; do
+		# check for keys
+		key=dropbear/dropbear_${keytype}_host_key
+		# generate missing keys
+		[ -x /usr/bin/dropbearkey ] && {
+			/usr/bin/dropbearkey -t $keytype -f ${WORK_DIR}/$key 2>&1 > /dev/null
+		}
+	done
+
+}
+
+start_service()
+{
+	if [ -f ${PID_FILE} ]; then
+		echo "dropbear is running"
+		exit 0
+	fi
+	[ -s ${WORK_DIR}/dropbear/dropbear_rsa_host_key ] || keygen
+
+	config_load ${NAME}
+	config_foreach dropbear_instance dropbear
+
+	firewall_ssh start
+}
+
+stop_service()
+{
+	if [ ! -f ${PID_FILE} ]; then
+		echo "dropbear not running"
+		return
+	fi
+
+	kill `cat ${PID_FILE}`
+
+	firewall_ssh stop
+}
+
+case $1 in
+	start)
+		start_service
+		;;
+	stop)
+		stop_service
+		;;
+	restart)
+		stop_service
+		start_service
+		;;
+	*)
+		echo "$0: start|stop|restart"
+		;;
+esac

@@ -1,0 +1,11 @@
+--- a/pppd/Makefile.linux	2018-05-02 10:36:55.160565775 +0800
++++ b/pppd/Makefile.linux	2018-05-02 10:38:18.432567372 +0800
+@@ -51,7 +51,7 @@
+ #FILTER=y
+ 
+ # Support for precompiled filters
+-PRECOMPILED_FILTER=y
++#PRECOMPILED_FILTER=y
+ 
+ # Uncomment the next line to enable multilink PPP (enabled by default)
+ # Linux distributions: Please leave multilink ENABLED in your builds

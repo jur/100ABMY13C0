@@ -1,0 +1,61 @@
+--- net/batman-adv/main.h	2019-03-06 11:18:54.933509168 +0800
++++ net/batman-adv/main.h	2019-03-06 11:18:40.365508888 +0800
+@@ -99,8 +99,8 @@
+ 
+ /* number of packets to send for broadcasts on different interface types */
+ #define BATADV_NUM_BCASTS_DEFAULT 1
+-#define BATADV_NUM_BCASTS_WIRELESS 3
+-#define BATADV_NUM_BCASTS_MAX 3
++#define BATADV_NUM_BCASTS_WIRELESS 1
++#define BATADV_NUM_BCASTS_MAX 1
+ 
+ /* length of the single packet used by the TP meter */
+ #define BATADV_TP_PACKET_LEN ETH_DATA_LEN
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

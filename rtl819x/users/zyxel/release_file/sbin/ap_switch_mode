@@ -1,0 +1,15 @@
+#!/bin/sh
+
+#This script only be called by zy1905
+
+#switch batman mode from client to off
+#/sbin/update_batman_gw_mode bridge
+
+#restart network, only reload 5G AP and 24G
+echo 'wlan0' > /tmp/WirelessApply && /etc/init.d/wireless start
+echo 'wlan2' > /tmp/WirelessApply && /etc/init.d/wireless start
+
+#restart wireless
+/etc/init.d/network restart
+
+echo "**** ap_switch_mode complete ****" > /dev/console

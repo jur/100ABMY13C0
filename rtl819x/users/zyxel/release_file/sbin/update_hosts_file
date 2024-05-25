@@ -1,0 +1,36 @@
+#!/bin/sh
+
+cat << EOF > /var/hosts
+# Do not remove the following line, or various programs
+# that require network functionality will fail.
+127.0.0.1       localhost.localdomain   localhost       rlx-linux
+EOF
+
+update_router_hosts()
+{
+    br0IP=$(uci get network.br0.ipaddr)
+    ## To avoid vulnerability with DNS record based autoconfiguration and autodiscovery methods. 
+    ## Redirect "wpad" and "isatap" to device itself.
+    echo "$br0IP    wpad" >> /var/hosts
+    echo "$br0IP    isatap" >> /var/hosts
+}
+
+update_bridge_hosts()
+{
+		echo "remove old hosts records from /var/hosts" > /dev/console
+}
+
+case $1 in
+    router)
+        update_router_hosts
+        ;;
+    bridge)
+        update_bridge_hosts
+        ;;
+    ap)
+        update_bridge_hosts
+        ;;
+    *)
+        ;;
+esac
+exit 0

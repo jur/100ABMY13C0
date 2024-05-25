@@ -1,0 +1,49 @@
+#!/bin/sh
+
+help() {
+    echo "netprobe control script"
+    echo "Usage     netprobe <Behavior>"
+    echo "Behavior: <start> <stop> <restart>"
+}
+
+start() {
+	op_role=$(uci get system.main.operation_role)
+	if [ "$op_role" == "controllee" ]; then
+		netprobe -t 8 -d 5 -b br0 &
+	else
+		netprobe -t 8 -d 5 -m -b br0 &
+	fi
+}
+
+stop() {
+	netprobe_pid=$(ps | grep "netprobe -t" | grep -v grep | awk '{print $1}')
+	one_connect_monitor_pid=$(ps | grep "one_connect_monitor"  | grep -v grep | awk '{print $1}')
+	kill -9 $netprobe_pid
+	kill -9 $one_connect_monitor_pid
+}
+
+restart() {
+    stop
+    # remove database. Not sure if we did have to remove the db, comment out for now.
+    #rm /tmp/netprobe.db
+    #rm /tmp/ApplicationData/netprobe.db
+    start
+}
+
+
+case $1 in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        restart
+        ;;
+    *|help)
+        help
+        exit 1
+        ;;
+esac
+exit 0

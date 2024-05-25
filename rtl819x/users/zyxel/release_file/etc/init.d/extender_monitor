@@ -1,0 +1,37 @@
+#!/bin/sh
+
+start() {
+    /usr/sbin/extender_monitor &
+}
+
+stop() {
+    PID=$(cat /tmp/extender_monitor.pid)
+
+    if [ "$PID" != "" ] ; then
+        kill $PID
+    fi
+}
+
+restart() {
+    stop
+    start
+}
+
+case "$1" in
+    "start")
+        start
+        ;;
+    "restart")
+        restart
+        ;;
+    "stop")
+        stop
+        ;;
+    *)
+        echo "Invalid command: $0 $1"
+        echo "example:"
+        echo "         1.$0 start"
+        echo "         2.$0 restart "
+        echo "         3.$0 stop "
+        ;;
+esac

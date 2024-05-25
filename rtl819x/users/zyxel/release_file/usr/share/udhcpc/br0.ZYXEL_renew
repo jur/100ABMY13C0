@@ -1,0 +1,42 @@
+#!/bin/sh
+# udhcpc bound script
+RESOLV_CONF="/var/udhcpc/resolv.conf"
+
+echo " "
+echo "************"
+echo "$interface $ip $subnet $router $dns"
+echo "************"
+
+[ -n "$subnet" ] && NETMASK="netmask $subnet"
+
+ifconfig $interface $ip $NETMASK
+
+echo "$ip" > /var/curr_br0_info
+echo "$subnet" >> /var/curr_br0_info
+echo "$router" >> /var/curr_br0_info
+
+echo "$ip" > /var/br0_ip
+if [ "$router" ]; then
+        for i in $router
+        do
+                route add -net default gw $i dev $interface
+        done
+fi
+
+if [ $? = 0 ]; then
+echo "br0 setting is OK."
+fi
+
+[ -f "$RESOLV_CONF" ] && rm $RESOLV_CONF
+
+for i in $dns
+do
+        echo nameserver $i >> $RESOLV_CONF
+done
+
+cp $RESOLV_CONF /var/resolv.conf
+
+[ -f /var/trigger_port ] && {
+	local values=$(cat /var/trigger_port)
+	echo "$values" > /var/IP_trigger_port
+}

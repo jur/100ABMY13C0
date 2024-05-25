@@ -1,0 +1,22 @@
+--- a/pppd/ipcp.c	2019-11-29 11:31:38.575942095 +0800
++++ b/pppd/ipcp.c	2019-11-29 11:30:38.786062050 +0800
+@@ -1997,6 +1997,9 @@
+    system(cmdBuffer);
+    sprintf(cmdBuffer, "/usr/sbin/zyxel_event_trigger eth1 UP");
+    system(cmdBuffer);
++
++   /* ZYXEL, Patrick, 20191129, Add zlog for more debug information. */
++   system("zlog 7 2 '[PPPoE] wan port connection is up.'");
+ }
+ 
+ 
+@@ -2052,6 +2055,9 @@
+     char cmdBuffer[64]={0};
+     sprintf(cmdBuffer, "rm /var/wan_ip");
+     system(cmdBuffer);
++
++    /* ZYXEL, Patrick, 20191129, Add zlog for more debug information. */
++    system("zlog 7 2 '[PPPoE] wan port connection is down.'");
+ }
+ 
+ 

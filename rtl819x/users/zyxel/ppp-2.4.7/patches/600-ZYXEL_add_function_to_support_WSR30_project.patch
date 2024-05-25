@@ -1,0 +1,103 @@
+--- a/pppd/auth.c	2014-08-09 20:31:39.000000000 +0800
++++ b/pppd/auth.c	2018-04-16 18:03:29.000000000 +0800
+@@ -404,6 +404,20 @@
+     { NULL }
+ };
+ 
++/*dzh add for fast clear ppp kernel info!!!*/
++void clear_ppp_info(void)
++{
++	 extern int ppp_dev_fd;
++	 extern int req_unit;
++	 #define PPPIOCDETACH _IOW('t', 60, int) /* detach from ppp unit/chan */
++	 ioctl(ppp_dev_fd, PPPIOCDETACH, &req_unit);
++
++	 /*They will support ZYXEL solution, so add them.*/
++	 char cmdBuffer[64]={0};
++	 sprintf(cmdBuffer, "iptables -t nat -D POSTROUTING -o ppp0 -j MASQUERADE");
++	 system(cmdBuffer);
++}
++
+ /*
+  * setupapfile - specifies UPAP info for authenticating with peer.
+  */
+@@ -625,6 +639,8 @@
+     if (!doing_multilink) {
+ 	notice("Connection terminated.");
+ 	print_link_stats();
++	info("\n%s:%d calling clear_ppp_info()!!!\n",__FUNCTION__,__LINE__);
++	clear_ppp_info();
+     } else
+ 	notice("Link terminated.");
+ 
+--- a/pppd/ipcp.c	2018-04-16 17:53:50.000000000 +0800
++++ b/pppd/ipcp.c	2018-04-16 18:09:19.000000000 +0800
+@@ -1972,6 +1972,31 @@
+ 	ipcp_script_state = s_up;
+ 	ipcp_script(path_ipup, 0);
+     }
++
++    /*That will support ZYXEL solution, so add them.*/
++    char cmdBuffer[64]={0};
++    if (!(ho->hisaddr)){
++	warn("Warning: remote IP address is none.");
++    } else {
++	char wan_ip[32],gateways[32];
++	sprintf(wan_ip, "%s",inet_ntoa(*((struct in_addr *)(&(go->ouraddr)))));
++	sprintf(cmdBuffer, "echo %s > /var/wan_ip",wan_ip);
++	system(cmdBuffer);
++	sprintf(cmdBuffer, "route del -net 0.0.0.0 gw 0.0.0.0 netmask 0.0.0.0 dev ppp0");
++	system(cmdBuffer);
++	sprintf(gateways, "%s",inet_ntoa(*((struct in_addr *)(&(ho->hisaddr)))));
++	sprintf(cmdBuffer, "route add -net default gw %s dev ppp0",gateways);
++	system(cmdBuffer);
++
++	sprintf(cmdBuffer, "iptables -t nat -A POSTROUTING -o ppp0 -j MASQUERADE");
++	system(cmdBuffer);
++   }
++
++   /*That will support ZYXEL solution, so add them.*/
++   sprintf(cmdBuffer, "touch /var/wan_IP_trigger");
++   system(cmdBuffer);
++   sprintf(cmdBuffer, "/usr/sbin/zyxel_event_trigger eth1 UP");
++   system(cmdBuffer);
+ }
+ 
+ 
+@@ -2022,6 +2047,11 @@
+ 	ipcp_script_state = s_down;
+ 	ipcp_script(path_ipdown, 0);
+     }
++
++    /*That will support ZYXEL solution, so add them.*/
++    char cmdBuffer[64]={0};
++    sprintf(cmdBuffer, "rm /var/wan_ip");
++    system(cmdBuffer);
+ }
+ 
+ 
+@@ -2152,6 +2182,24 @@
+ 	error("Write failed to %s: %m", _PATH_RESOLV);
+ 
+     fclose(f);
++
++    /*That will support ZYXEL solution, so add them.*/
++    f = fopen("/var/resolv.conf", "w");
++    if (f == NULL) {
++	error("Failed to create /var/resolv.conf");
++    	return;
++    }
++
++    if (peerdns1)
++	fprintf(f, "nameserver %s\n", ip_ntoa(peerdns1));
++
++    if (peerdns2)
++	fprintf(f, "nameserver %s\n", ip_ntoa(peerdns2));
++
++    if (ferror(f))
++	error("Failed to create /var/resolv.conf");
++
++    fclose(f);
+ }
+ 
+ /*

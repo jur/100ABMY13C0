@@ -1,0 +1,181 @@
+#!/bin/sh
+#Guest WLAN firewall check
+# Guest WLAN 1 :192.168.141.x
+# Guest WLAN 2 :192.168.142.x
+# Guest WLAN 3 :192.168.143.x
+# 1.Guest WLAN didn't open GUI from 192.168.1.1,192.168.141.1,
+# 	192.168.142.1,192.168.143.1
+# 2.192.168.1.x didn't ping Guest WLAN
+#   Guest WLAN didn't ping 192.168.1.x
+#   Guest WLAN 1 didn't ping Guest WLAN 2 and Guest WLAN 3.
+#   Guest WLAN 2 didn't ping Guest WLAN 1 and Guest WLAN 3.
+#   Guest WLAN 3 didn't ping Guest WLAN 1 and Guest WLAN 2.
+#------------------------------------------------------------------
+#   Guest WLAN 1 didn't ping 192.168.142.1 and 192.168.143.1.
+#   Guest WLAN 2 didn't ping 192.168.141.1 and 192.168.143.1.
+#   Guest WLAN 3 didn't ping 192.168.141.1 and 192.168.142.1.
+#------------------------------------------------------------------
+#   Guest WLAN didn't ping br-lan ip
+#   Guest WLAN didn't log in br-lan FTP and SAMBA
+#   Guest WLAN can't access LAN interface (www,telnet,https,ssh)
+#   Guest WLAN can't access One connect APP
+#------------------------------------------------------------------
+
+. /sbin/functions.sh
+include /lib/config
+
+
+LAN="br0"
+guestLan=""guest-lan""
+target=`uci get firewall.general.target`
+FTP_PORT=$(uci get proftpd.global.port)
+lanip=$(ifconfig br0 | grep "inet addr" | awk -F'addr:' '{print $2}' | awk -F'Bcast' '{print $1}')
+netaddr_lanip=$(echo $lanip | cut -d '.' -f 1-3)
+www_port=$(uci get firewall.remote_www.port)
+https_port=$(uci get firewall.remote_https.port)
+telnet_port=$(uci get firewall.remote_telnet.port)
+ssh_port=$(uci get firewall.remote_ssh.port)
+system_mode=$(uci_get system main system_mode)
+op_role=$(uci get system.main.operation_role)
+
+# check isolate_external_subnet
+uci get firewall.general.isolate_external_subnet 2> /dev/null
+if [ $? = "1" ]; then
+	isolate_external_subnet=0
+else
+	isolate_external_subnet=$(uci get firewall.general.isolate_external_subnet)
+fi
+
+iptables -F FORWARD_GuestLAN
+iptables -D FORWARD -i $guestLan -j FORWARD_GuestLAN 2>/dev/null
+iptables -X FORWARD_GuestLAN
+iptables -N FORWARD_GuestLAN
+
+iptables -F INPUT_GuestLAN
+iptables -D INPUT -i $guestLan -j INPUT_GuestLAN 2>/dev/null
+iptables -X INPUT_GuestLAN
+iptables -N INPUT_GuestLAN
+
+#iptables -D FORWARD -j FORWARD_GuestLAN 2>/dev/null
+iptables -A FORWARD -i $guestLan -j FORWARD_GuestLAN 2>/dev/null
+#iptables -D INPUT -j INPUT_GuestLAN 2>/dev/null
+iptables -A INPUT -i $guestLan -j INPUT_GuestLAN 2>/dev/null
+
+
+#for number in 1 2
+#do
+	chk_guest_lan=$(brctl show | grep $guestLan)
+	guest_ipaddr=$(uci get network.guest.ipaddr)
+	ipmask=255.255.255.0
+#	ipmask=$(uci get network.guest.netmask) # Currently we only support class C
+
+#	iptables -D FORWARD_GuestLAN -i $guestLan -o $LAN -j DROP
+#	iptables -D FORWARD_GuestLAN -s $netaddr.0/24 -d $netaddr.0/24 -j DROP
+#	iptables -D FORWARD_GuestLAN -p udp -m multiport --dport 67,68 -j ACCEPT
+#	iptables -D FORWARD_GuestLAN -p udp --dport 53 -j ACCEPT
+#	iptables -D FORWARD_GuestLAN -p udp --sport 53 -j ACCEPT
+	iptables -D FORWARD -i $guestLan -j ACCEPT
+	
+#	iptables -D INPUT_GuestLAN -i $guestLan -p icmp --icmp-type 8 -d $lanip -j DROP
+#	iptables -D FTP_INPUT -i $guestLan -d $lanip -p tcp --dport $FTP_PORT -j DROP
+#	iptables -D SAMBA_INPUT -i $guestLan -d $lanip -p udp --dport 137 -j DROP
+#	iptables -D SAMBA_INPUT -i $guestLan -d $lanip -p udp --dport 138 -j DROP
+#	iptables -D SAMBA_INPUT -i $guestLan -d $lanip -p tcp --dport 139 -j DROP
+#	iptables -D SAMBA_INPUT -i $guestLan -d $lanip -p tcp --dport 445 -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p udp --dport $www_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p tcp --dport $www_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p udp --dport $https_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p tcp --dport $https_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p udp --dport $telnet_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p tcp --dport $telnet_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p udp --dport $ssh_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -d $lanip -p tcp --dport $ssh_port -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -p udp --dport 263 -j DROP
+#	iptables -D INPUT_GuestLAN -i $guestLan -p tcp --dport 263 -j DROP
+
+	#if [ -z "$chk_guest_lan" ];then
+	#	brctl addbr $guestLan
+
+	#	brctl stp $guestLan on
+
+	#	local guest_vid=$(uci_get wireless wifi guest_vid)
+	#	if [ "$op_role" == "controllee" ]; then
+	#		brctl setbridgeprio $guestLan 10
+	#	else
+	#		brctl setbridgeprio $guestLan 0
+	#	fi
+
+	#	base_addr=$(ifconfig ath1 | grep HWaddr | awk '{print $5}')
+	#	ifconfig $guestLan hw ether $base_addr
+	#fi
+
+	
+	if [ "$target" == "DROP" ] ; then
+		iptables -A FORWARD -i $guestLan -j ACCEPT
+	fi
+
+#	iptables -I FTP_INPUT -i $guestLan -d $lanip -p tcp --dport $FTP_PORT -j DROP
+#	iptables -I SAMBA_INPUT -i $guestLan -d $lanip -p udp --dport 137 -j DROP
+#	iptables -I SAMBA_INPUT -i $guestLan -d $lanip -p udp --dport 138 -j DROP
+#	iptables -I SAMBA_INPUT -i $guestLan -d $lanip -p tcp --dport 139 -j DROP
+#	iptables -I SAMBA_INPUT -i $guestLan -d $lanip -p tcp --dport 445 -j DROP
+	iptables -I INPUT_GuestLAN -p icmp --icmp-type 8 -d $lanip -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p udp --dport $www_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p tcp --dport $www_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p udp --dport $https_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p tcp --dport $https_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p udp --dport $telnet_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p tcp --dport $telnet_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p udp --dport $ssh_port -j DROP
+	iptables -I INPUT_GuestLAN -d $lanip -p tcp --dport $ssh_port -j DROP
+	iptables -I INPUT_GuestLAN -p udp --dport 263 -j DROP
+	iptables -I INPUT_GuestLAN -p tcp --dport 263 -j DROP
+
+	if [ "$system_mode" == "1" ] ||
+	[ "$system_mode" != "1" -a "$op_role" == "controller" ]; then
+		iptables -I INPUT_GuestLAN -p udp -m multiport --dport 67,68 -j ACCEPT
+		iptables -I INPUT_GuestLAN -p udp --dport 53 -j ACCEPT
+		iptables -I INPUT_GuestLAN -p udp --sport 53 -j ACCEPT
+	fi
+
+	# In bridge mode, don't block guest traffic from br-guest1 to br-lan
+	if [ "$system_mode" != "2" ] || [ "$op_role" != "controller" ]; then
+		iptables -I FORWARD_GuestLAN -o $LAN -j DROP
+	fi
+
+	#iptables -I FORWARD_GuestLAN -p udp -m multiport --dport 67,68 -j ACCEPT
+	#iptables -I FORWARD_GuestLAN -p udp --dport 53 -j ACCEPT
+	#iptables -I FORWARD_GuestLAN -p udp --sport 53 -j ACCEPT
+	iptables -A FORWARD_GuestLAN -d $netaddr_lanip.0/24 -j DROP
+
+	# isolate_external_subnet
+	if [ $isolate_external_subnet == "1" -a "$op_role" == "controller" ]; then
+	    if [ "$system_mode" == "1" ]; then
+		# wan -> nas0
+		wan_if=$(uci get network.wan.ifname)
+	    elif [ "$system_mode" != "1" ]; then
+		# br0, ignore bridge mode for isolate external subnet
+		wan_if=$LAN
+	    fi
+	    wan_ip=$(ifconfig $wan_if| grep "inet addr" | awk -F'addr:' '{print $2}' | awk -F'Bcast' '{print $1}')
+	    if [ "$system_mode" == "1"  -a  $wan_ip != "" ]; then
+		wan_netmask=$(ifconfig $wan_if | grep "inet addr" | awk -F'Mask:' '{print $2}')
+		wan_network=$(ipcalc -pn $wan_ip $wan_netmask | grep NETWORK | awk -F'NETWORK=' '{print $2}')
+		wan_netmask_prefix=$(ipcalc -pn $wan_ip $wan_netmask | grep PREFIX | awk -F'PREFIX=' '{print $2}')
+		iptables -A FORWARD_GuestLAN -d $wan_network/$wan_netmask_prefix -j DROP
+		logger -t zyxel.GuestWiFi -p info "isolate external subnet $wan_network/$wan_netmask_prefix"
+	    fi
+	fi
+
+	iptables -A INPUT_GuestLAN -d $lanip -j DROP
+
+	if [ "$op_role" == "controller" ]; then
+		# move the following rules to udhcpc_guest.sh
+		netaddr_guestip=$(echo $guest_ipaddr | cut -d '.' -f 1-3)
+		netaddr_visitorip=$(echo $visitor_ipaddr | cut -d '.' -f 1-3)
+		#iptables -A FORWARD_GuestLAN -d $netaddr_guestip.0/24 -j DROP
+		#iptables -A FORWARD_GuestLAN -d $netaddr_visitorip.0/24 -j DROP
+		iptables -A INPUT_GuestLAN -d $guest_ipaddr -j DROP
+	fi
+#done
+lock -u /tmp/.order_filter_guest.lock

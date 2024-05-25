@@ -1,0 +1,12 @@
+#!/bin/sh
+
+## zy1905 monitor
+
+	local redis_server_pid
+
+	redis_server_pid=$(ps | grep "/usr/sbin/zy1905" | grep "grep" -v | awk '{print $1}')
+
+	if [ "$redis_server_pid" == "" ] ;then
+		#echo "zy1905 redis_server_process_die" >> /tmp/zy1905_monitor_log
+		/etc/init.d/zy1905 start
+	fi

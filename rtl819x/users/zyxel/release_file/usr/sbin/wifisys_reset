@@ -1,0 +1,17 @@
+#!/bin/sh 
+
+echo "start............"
+
+while :
+do
+	echo "wifisys reset to factory default"
+	/sbin/zyxel_led_ctrl ResetToDefault
+	
+	if [ -f "/tmp/wifisys_reset" ]; then
+		sleep 2
+		/sbin/romreset
+	fi	
+	
+	sleep 1
+done
+ 

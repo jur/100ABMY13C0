@@ -1,0 +1,70 @@
+#!/bin/sh
+
+stop(){
+	path="/var/run/dnsmasq_guest_lan.pid"
+	if [ -f $path ];then
+		# chk_ath=$(flash get WLAN2_VAP0_WLAN_DISABLED |awk -F"=" '{print $2}' |sed 's/"//g')
+		# chk_ath5g=$(flash get WLAN0_VAP0_WLAN_DISABLED |awk -F"=" '{print $2}' |sed 's/"//g')
+		# if [ $chk_ath == "1" ] && [ $chk_ath5g == "1" ]; then
+			dnsmasq_pid=$(cat $path)
+			kill $dnsmasq_pid
+			rm $path
+		# fi
+	fi
+}
+
+start(){
+	guestLan="guest-lan"
+	chk_guest_lan=$(brctl show | grep $guestLan)
+	ipaddr="192.168.141"
+	ipmask="255.255.255.0"
+
+	if [ -z "$chk_guest_lan" ];then
+		brctl addbr $guestLan
+		ifconfig $guestLan "$ipaddr".1 netmask $ipmask up
+	else
+		ifconfig $guestLan "$ipaddr".1 netmask $ipmask up
+	fi
+
+	dnsmasq_pid=$(ps | grep "dnsmasq -C /tmp/dnsmasq_guest_lan.conf" | grep -v "grep" | awk '{print $1}')
+	if [ -z $dnsmasq_pid ];then
+		# local start="10"
+		# local end="32"
+		# local leasetime="720m"
+		# eval "$(ipcalc.sh $ipaddr $ipmask $start $end)"
+		# local args="-C /tmp/dnsmasq_guest_lan1.conf -z -a $ipaddr -K -F $START,$END,$NETMASK,$leasetime"
+		local args="-C /tmp/dnsmasq_guest_lan.conf -z -a $ipaddr.1 -K -F $ipaddr.10,$ipaddr.42,$ipmask,720m"
+		/bin/dnsmasq $args
+		dnsmasq_pid=$(ps | grep "dnsmasq -C /tmp/dnsmasq_guest_lan.conf" | grep -v "grep" | awk '{print $1}')
+		echo $dnsmasq_pid > /var/run/dnsmasq_guest_lan.pid
+	fi
+}
+
+restart(){
+	##dnsmasq down
+	path="/var/run/dnsmasq_guest_lan.pid"
+	if [ -f $path ];then
+		dnsmasq_pid=$(cat $path)
+		kill $dnsmasq_pid
+		rm $path
+	fi
+
+	##dnsmasq up
+	# chk_ath=$(flash get WLAN2_VAP0_WLAN_DISABLED |awk -F"=" '{print $2}' |sed 's/"//g')
+	# chk_ath5g=$(flash get WLAN0_VAP0_WLAN_DISABLED |awk -F"=" '{print $2}' |sed 's/"//g')
+	# if [ $chk_ath == "0" ] || [ $chk_ath5g == "0" ]; then
+		start "START"
+	# fi
+}
+
+case "$1" in
+	STOP)
+		stop
+	;;
+	START)
+		start
+	;;
+	RESTART)
+		restart
+	;;
+esac

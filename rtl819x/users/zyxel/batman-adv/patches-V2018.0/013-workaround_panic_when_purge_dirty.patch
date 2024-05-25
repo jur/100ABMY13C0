@@ -1,0 +1,32 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-22 10:16:21.685724301 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-22 09:49:57.513727648 +0800
+@@ -69,7 +69,7 @@
+ static u8   fastbat_verdict_packettype(struct ethhdr *);
+ static void	fastbat_show_list_entry(u32 idx);
+ static FAST_BAT	*fastbat_skb_peel_and_search(struct sk_buff *);
+-static void fastbat_del_list_entry(FAST_BAT *);
++static void	fastbat_del_list_entry(FAST_BAT *);
+ static struct	batadv_orig_node *fastbat_grab_orig_by_neigh(u8 *addr, struct net_device *); 
+ static void	fastbat_del_local_entry(FAST_LOCAL *);
+ static void	fastbat_show_local_entry(void);
+@@ -1479,7 +1498,7 @@
+ {
+ 	FAST_BAT	*bat, *bat_to_be_del;
+ 	FAST_LOCAL	*local, *local_to_be_del;
+-	int			idx=0;
++	u32			idx=0;
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] start to purge bats ...\n");
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+@@ -1501,6 +1520,11 @@
+ 					__hlist_del(&bat_to_be_del->list);
+ 					mutex_unlock(&bats_lock);
+ 					kfree(bat_to_be_del);
++					if(bat == NULL) {
++						FASTBAT_ERR_MSG(" ERR! null bat ptr!\n");
++						fastbat_show_list_entry(idx);
++						break;
++					}
+ 				}	
+ 				//fastbat_del_list_entry(bat);
+ 			}

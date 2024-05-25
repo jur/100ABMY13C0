@@ -1,0 +1,38 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-16 13:43:45.578793100 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-16 11:06:45.550812999 +0800
+@@ -1327,7 +1336,7 @@
+ 	bat->last_seen=jiffies;
+ 
+ 	retval=dev_queue_xmit(skb);
+-	FASTBAT_DBG_RAW_MSG("[F@STBAT] xmit(%d)!\n", retval);
++	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] xmit(%d)!\n", retval);
+ 	return	retval;
+ 
+ ERR:
+@@ -1410,6 +1419,7 @@
+ 					continue;
+ 				if(!memcmp(bat->orig, orig_node->orig, ETH_ALEN)) {
+ 					bat->dirty=1;   /*dirty*/
++					dirty=1;
+ 					FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
+ 					//fastbat_del_list_entry(bat);
+ 				}
+@@ -1487,13 +1497,15 @@
+ 				FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty bat! eliminates this bat!\n");
+ 				if(bat->list.next == NULL) {
+ 					mutex_lock(&bats_lock);
+-					bats[idx].first=NULL;
++					__hlist_del(&bat->list);
++					//bats[idx].first=NULL;
+ 					mutex_unlock(&bats_lock);
+ 					kfree(bat);
+ 					break;
+ 				} else {
+-					bat_to_be_del=bat;
+-					bat=bat->list.next;		//weird, FIXME
++					bat_to_be_del=bat;		//to be deleted
++					bat=(FAST_BAT *)(*bat->list.pprev);
++					//bat=bat->list.next;		//weird, FIXME
+ 					mutex_lock(&bats_lock);
+ 					__hlist_del(&bat_to_be_del->list);
+ 					mutex_unlock(&bats_lock);

@@ -1,0 +1,23 @@
+#!/bin/sh
+
+# check zapi-service daemon is alive
+zapi_service_path="/bin/zapi-service"
+if [ -e "$zapi_service_path" ]; then
+    # check every 15 seconds
+    zapi_service_check_result=$(ps | grep '[z]api-service')
+    if [ "$zapi_service_check_result" == "" ]; then
+        /usr/sbin/reload-zapi-service.sh
+        exit
+    fi
+
+# check zapi-service socket is alive. Do not know why it have to check socket is dead
+#    /usr/sbin/check-zapi-service-is-alive.sh
+fi
+
+# zapi-service memory protection
+zapi_service_memory=$(ps | grep '[z]api-service' | awk '{printf $3}')
+if [ "$zapi_service_memory" -ge "18000" ]; then
+    echo "zapi-service memory is bigger than 18000 Kbytes. Kill zapi-service !!!" > /dev/console
+    /usr/sbin/reload-zapi-service.sh -f
+fi
+

@@ -1,0 +1,44 @@
+#!/bin/sh
+
+keypair_root="/hw_setting/"
+dev_mac=$(atsh | sed -n '5p' | awk -F': ' '{print $2}')
+dev_serial=$(atsh | sed -n '4p' | awk -F': ' '{print $2}')
+dev_keypair="$keypair_root$dev_mac-$dev_serial.bin"
+# Prevent every time write same value even it is same value
+orig_value=$(uci get system.keystore.path)
+if [ -z "$orig_value" ] || [ "$orig_value" != "$dev_keypair" ]; then
+    uci set system.keystore.path="$dev_keypair"
+else
+    echo "keypair is already existed!"
+fi
+
+uci_uuid=$(uci get system.keystore.certificate_tag 2> /dev/null)
+if [ -z "$uci_uuid" ]; then
+    def_uuid=$(cat /proc/sys/kernel/random/uuid)
+    uci set system.keystore.certificate_tag="$def_uuid"
+fi
+
+uci commit
+
+# Verify value
+uci get system.keystore.certificate_tag
+uci get system.keystore.path
+
+# For factory check
+# Generating certificate info to /tmp/getCrtInfo.tmp
+getCrtInfo > /tmp/getCrtInfo.tmp
+
+# Verify data
+#cat /tmp/getCrtInfo.tmp
+
+# if cert is not using first mac to generated, notify BLE error!
+crt_mac=$(sed -n '7p' tmp/getCrtInfo.tmp | awk -F ":" '{print $2}')
+first_mac=$(atsh | grep 'First MAC' | awk '{ print $5}'| tr [a-z] [A-Z])
+#echo "Crt Mac: $crt_mac, first Mac: $first_mac"
+if [ "$crt_mac" != "$first_mac" ]; then
+    echo "BLE Error!!"
+    zlog 0 2 "BLE Error!! Certificate is not generated with device's First Mac!!"
+    /sbin/zyxel_led_ctrl BLEError
+else
+    echo "Certificate is fine."
+fi

@@ -1,0 +1,49 @@
+#!/bin/sh
+
+usage() {
+    echo "Usage: link_monitor [Root|Ext] [start|stop|restart]"
+}
+
+start_AP() {
+    watch -n 5 -t /usr/sbin/link_monitor_AP 1>/dev/null 2>&1 &
+}
+
+stop_AP() {
+    PID=$(ps | grep -w '[w]atch' | grep 'link_monitor_AP' | awk '{print $1}')
+    kill $PID
+}
+
+restart_AP() {
+    stop_AP
+    start_AP
+}
+
+case $2 in
+    "start")
+        if [ "$1" == "Ext" ]; then
+        start_AP
+        else
+        echo "link_monitor for Root AP is not avaiable for now"
+        fi
+        ;;
+    "stop")
+        if [ "$1" == "Ext" ]; then
+        stop_AP
+        else
+        echo "link_monitor for Root AP is not avaiable for now"
+        fi
+        ;;
+    "restart")
+        if [ "$1" == "Ext" ]; then
+        restart_AP
+        else
+        echo "link_monitor for Root AP is not avaiable for now"
+        fi
+        ;;
+    *|help)
+        usage
+        exit 1
+        ;;
+esac
+exit 0
+

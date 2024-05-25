@@ -1,0 +1,155 @@
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-08 15:41:47.982655632 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-08 16:53:47.114646509 +0800
+@@ -50,7 +50,7 @@
+ static u8	forbid_mac_addr[][ETH_ALEN+1] = {
+ 	{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 6},	//"broadcast"
+ 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 6},	//"zero addr"
+-	{0x01, 0x80, 0xc2, 0x00, 0x00, 0x00, 6},	//"stp addr": spanning tree
++	{0x01, 0x80, 0xc2, 0x00, 0x00, 0x00, 5},	//"stp addr": spanning tree
+ 	{0xcf, 0x00, 0x00, 0x00, 0x00, 0x00, 6},	//"ectp addr": ethernet v2.0 configuration testing
+ 	{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 1},	//"multicast": is_multicast_ether_addr(addr)
+ 	{0x33, 0x33, 0x00, 0x00, 0x00, 0x00, 2},	//multicast of ipv6
+@@ -630,7 +630,7 @@
+ 	}
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list!\n");
+-	fastbat_show_list_entry(fastbat_hash_calculate(bat->src, bat->dst));
++	//fastbat_show_list_entry(fastbat_hash_calculate(bat->src, bat->dst));
+ 	return	0;
+ FREE:
+ 	kfree(bat);
+@@ -672,7 +672,7 @@
+ 				return	local;
+ 			} else {
+ 				//fastbat_del_local_entry(local);
+-				fastbat_show_local_entry();
++				//fastbat_show_local_entry();
+ 				break;
+ 			}
+ 		}
+@@ -710,7 +710,7 @@
+ 				return	bat;
+ 			} else {
+ 				//fastbat_del_list_entry(bat);
+-				fastbat_show_list_entry(idx);
++				//fastbat_show_list_entry(idx);
+ 				goto	RETN;
+ 			}
+ 		}
+@@ -1134,12 +1134,13 @@
+ 	}
+ 	skb->dev=bat->net_dev;
+ 	skb->protocol=htons(ETH_P_BATMAN);
+-#if	1
++#if	0//1
++	/* for debug */
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit ethhdr(%p) data(%p) head(%p) mac(%p)\n", 
+ 		ethhdr, skb->data, skb->head, skb_mac_header(skb));
+ 	//fastbat_show_raw_data((void *)skb->data, 63);
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit (s)%pM (d)%pM\n", ethhdr->h_source, ethhdr->h_dest);
+-	xxxFASTBAT_DBG_MSG("[F@STBAT] wrap xmit(%s VS %s)!\n", skb->dev->name, bat->net_dev->name);
++	FASTBAT_DBG_MSG("[F@STBAT] wrap xmit(%s VS %s)!\n", skb->dev->name, bat->net_dev->name);
+ #endif
+ 	retval=dev_queue_xmit(skb);
+ 	bat->last_seen=jiffies;			//update last_seen jiffies
+@@ -1303,6 +1304,9 @@
+ 		vhdr=vlan_eth_hdr(skb);
+ 		vhdr->h_vlan_TCI=bat->vlan_data.h_vlan_TCI;
+ 		vhdr->h_vlan_encapsulated_proto=bat->vlan_data.h_vlan_encapsulated_proto;
++		skb->protocol=htons(ETH_P_8021Q);
++		ether_addr_copy(vhdr->h_source, bat->src1);
++		ether_addr_copy(vhdr->h_dest, bat->dst1);
+ 		if(bat->batman)
+ 			fastbat_clone_header((void *)bat, (void *)((struct vlan_ethhdr *)vhdr+1));
+ 		else
+@@ -1310,22 +1314,23 @@
+ 	} else if(bat->batman) {
+ 		ethhdr=eth_hdr(skb);
+ 		fastbat_clone_header((void *)bat, (void *)((struct ethhdr *)ethhdr+1));
++		skb->protocol=htons(ETH_P_BATMAN);
++		ether_addr_copy(ethhdr->h_source, bat->src1);
++		ether_addr_copy(ethhdr->h_dest, bat->dst1);
+ 	} else {
+-		//don't need to alter header
++		ethhdr=eth_hdr(skb);
++		ether_addr_copy(ethhdr->h_source, bat->src1);
++		ether_addr_copy(ethhdr->h_dest, bat->dst1);
+ 	}
+-
+-	//skb_reset_mac_header(skb);
+-	//ethhdr=eth_hdr(skb);
+-	//ether_addr_copy(ethhdr->h_source, bat->out->net_dev->dev_addr);
+-	//ether_addr_copy(ethhdr->h_dest, bat->dst);
+ 	
+-	skb_set_network_header(skb, ETH_HLEN);
++	skb_push(skb, (skb->data - skb->mac_header));
++	skb_reset_mac_header(skb);
+ 	skb->dev=bat->net_dev;
+-	skb->protocol=htons(ETH_P_BATMAN);
++	bat->last_seen=jiffies;
+ 
+ 	retval=dev_queue_xmit(skb);
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] xmit(%d)!\n", retval);
+-	return	net_xmit_eval(retval);
++	return	retval;//net_xmit_eval(retval);
+ 
+ ERR:
+ 	FASTBAT_DBG_MSG(" Xmit failed! Back to batman!\n");
+@@ -1488,10 +1493,12 @@
+ 					bats[idx].first=NULL;
+ 					mutex_unlock(&bats_lock);
+ 					kfree(bat);
++					break;
+ 				} else {
+ 					bat_to_be_del=bat;
++					bat=bat->list.next;		//weird, FIXME
+ 					mutex_lock(&bats_lock);
+-					__hlist_del(&bat->list);
++					__hlist_del(&bat_to_be_del->list);
+ 					mutex_unlock(&bats_lock);
+ 					kfree(bat_to_be_del);
+ 				}
+--- batman-adv-2018.3/net/batman-adv/routing.c	2018-11-08 14:18:45.234666158 +0800
++++ batman-adv-2018.3/net/batman-adv/routing.c	2018-11-08 18:36:26.614633497 +0800
+@@ -981,15 +981,23 @@
+ 		extern FAST_LOCAL *fastbat_local_search(u8 *);
+ 		extern struct ethhdr *fastbat_grab_real_ethhdr(struct sk_buff *);
+ 		extern int fastbat_xmit_peel(struct sk_buff *, FAST_LOCAL *);
++		extern int fastbat_filter_input_packet(struct sk_buff *, u16 *, u16 *);
++		extern FAST_BAT *fastbat_list_search(u8 *, u8 *);
++		extern void fastbat_show_raw_data(u8 *, u8);
+ 		struct ethhdr   *real, 
+ 						*ethhdr;
+ 		FAST_LOCAL		*local;
++		FAST_BAT		*bat;
+ 		int				retval;
+ 		int				hdr_len=0;
++		int				pass=0;
++		u16				vlan, 
++						batman;
+ 		
+ 		if((ethhdr=eth_hdr(skb)) == NULL)
+ 			goto	DONOTHING;
+ 
++		//fastbat_show_raw_data((u8 *)ethhdr, 48);
+ 		if((ethhdr->h_proto!=ETH_P_BATMAN) && (ethhdr->h_proto!=ETH_P_8021Q)) {
+ 			goto	DONOTHING;
+ 		}
+@@ -1007,6 +1015,17 @@
+ 			if(retval >= 0)
+ 				return	NET_RX_SUCCESS;
+ 		}
++		/* global bat */
++		pass=fastbat_filter_input_packet(skb, &vlan, &batman);
++		if(pass) {
++			bat=fastbat_list_search(real->h_source, real->h_dest);
++			if(bat != NULL) {
++				pass=fastbat_dispatch(skb, bat, vlan, batman);
++				if(pass >= 0) {
++					return	NET_RX_SUCCESS;
++				}
++			}
++		}
+ 	}
+ DONOTHING:
+ #endif

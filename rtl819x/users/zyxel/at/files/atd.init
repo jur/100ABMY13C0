@@ -1,0 +1,35 @@
+#!/bin/sh
+# Copyright (C) 2011 OpenWrt.org
+
+start() {
+	[ -d /var/spool/cron/atjobs ] || mkdir -p /var/spool/cron/atjobs
+	[ -d /var/spool/cron/atspool ] || mkdir -p /var/spool/cron/atspool
+	[ -f /var/spool/cron/atspool ] || > /var/spool/cron/atjobs/.SEQ
+	#chown -R nobody:nogroup /var/spool/cron/atjobs /var/spool/cron/atspool
+	atd
+}
+
+stop() {
+	killall atd
+}
+
+case "$1" in
+	"boot" )
+		start
+		;;
+	"start" )
+		start
+		;;
+	"stop" )
+		stop
+		;;
+	"restart" )
+		stop
+		start
+		;;
+	"reload" )
+		stop
+		start
+		;;
+esac
+

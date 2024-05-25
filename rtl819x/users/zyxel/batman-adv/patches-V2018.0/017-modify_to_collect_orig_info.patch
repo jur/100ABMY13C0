@@ -1,0 +1,128 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-06-11 14:50:56.114039215 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-06-11 17:02:22.654022555 +0800
+@@ -55,6 +55,7 @@
+ 		struct batadv_unicast_4addr_packet	u4;
+ 	}bat_data;
+ }FAST_BAT;
++#define	COLLECT_ORIG_OR_NEIGH
+ 
+ typedef struct	fast_local {
+ 	struct list_head	list;
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-12 10:38:28.533888699 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-06-12 10:17:07.709891405 +0800
+@@ -70,7 +70,11 @@
+ static void	fastbat_show_list_entry(u32 idx);
+ static FAST_BAT	*fastbat_skb_peel_and_search(struct sk_buff *);
+ static void	fastbat_del_list_entry(FAST_BAT *);
+-static struct	batadv_orig_node *fastbat_grab_orig_by_neigh(u8 *addr, struct net_device *); 
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
++static struct	batadv_orig_node *fastbat_grab_orig_by_neigh(u8 *addr, struct net_device *);
++#else
++static struct   batadv_orig_node *fastbat_grab_orig_by_neigh(u8 *, u8 *, struct net_device *);
++#endif
+ static void	fastbat_del_local_entry(FAST_LOCAL *);
+ static void	fastbat_show_local_entry(void);
+ 
+@@ -295,7 +299,10 @@
+  * return NULL if failed
+  */
+ static struct batadv_orig_node	*fastbat_grab_orig_by_neigh
+-(u8 *addr, 
++(u8 *addr,
++#if	defined(COLLECT_ORIG_OR_NEIGH)
++ u8 *real, 
++#endif 
+  struct net_device *soft)
+ {
+ 	u32			idx=0;
+@@ -315,6 +322,7 @@
+ 	//}
+ 	//bat_priv=netdev_priv(soft);
+ 	//hash=bat_priv->orig_hash;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 	for(; idx<hash->size; idx++) {
+ 		head=&hash->table[idx];
+ 		hlist_for_each_entry(orig_node, head, hash_entry) {
+@@ -325,7 +333,16 @@
+ 			}
+ 		}
+ 	}
+-	FASTBAT_ERR_MSG("[F@STBAT] failed to find orig!\n");
++#else
++	for(; idx<hash->size; idx++) {
++		head=&hash->table[idx];
++		hlist_for_each_entry(orig_node, head, hash_entry) {
++			if(!memcmp(real, orig_node->orig, ETH_ALEN-1))
++				return	orig_node;
++		}
++	}
++#endif
++	xxxFASTBAT_DBG_MSG("[F@STBAT] failed to find orig!\n");
+ 	return	NULL;
+ }
+ 
+@@ -637,9 +654,17 @@
+ 	ether_addr_copy(bat->dst, ethhdr->h_dest);
+ 	if(neigh) {
+ 		struct batadv_orig_node	*orig_node;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 		orig_node=fastbat_grab_orig_by_neigh(neigh, soft);
++#else
++		orig_node=fastbat_grab_orig_by_neigh(neigh, ethhdr->h_dest, soft);
++#endif
+ 		if(orig_node != NULL)
+ 			ether_addr_copy(bat->orig, orig_node->orig);
++#if	defined(COLLECT_ORIG_OR_NEIGH)
++		else
++			ether_addr_copy(bat->orig, neigh);
++#endif
+ 	}
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list!\n");
+@@ -1391,8 +1416,13 @@
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+ 				if(bat->dirty == 1)
+ 					continue;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 				if(!memcmp(bat->orig, orig->orig, ETH_ALEN)) {
+ 					if(!memcmp(bat->src , addr, ETH_ALEN) || !memcmp(bat->dst, addr, ETH_ALEN)) {
++#else
++				if(!memcmp(bat->orig, orig->orig, ETH_ALEN-1)) {
++					if(!memcmp(bat->src , addr, ETH_ALEN-1) || !memcmp(bat->dst, addr, ETH_ALEN-1)) {
++#endif
+ 						bat->dirty=1;
+ 						dirty=1;
+ 						FASTBAT_DBG_RAW_MSG("[F@STBAT] find out::(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
+@@ -1442,7 +1472,11 @@
+ 			if(bat->dirty)
+ 				continue;
+ 			//if(!memcmp(addr, bat->dst1, ETH_ALEN) || !memcmp(addr, bat->src1, ETH_ALEN)) {
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 			if(!memcmp(addr, bat->orig, ETH_ALEN)) {
++#else
++			if(!memcmp(addr, bat->orig, ETH_ALEN-1)) {
++#endif
+ 				bat->dirty=1;
+ 				dirty=1;
+ 				FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
+@@ -1468,7 +1502,11 @@
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+ 				if(bat->dirty == 1)
+ 					continue;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 				if(!memcmp(bat->orig, orig_node->orig, ETH_ALEN)) {
++#else
++				if(!memcmp(bat->orig, orig_node->orig, ETH_ALEN-1)) {
++#endif
+ 					bat->dirty=1;   /*dirty*/
+ 					dirty=1;
+ 					FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
+@@ -1631,7 +1669,7 @@
+ 	seq_printf(seq, "[global size]: %d\n", atomic_read(&__fastmesh_priv.global_count));
+ 	seq_printf(seq, "[local size]: %d\n", atomic_read(&__fastmesh_priv.local_count));
+ 	/* global bats */
+-	seq_puts(seq, "(No.)   [idx] <src>             <dst>             <realsrc>         <realdst>         <orig>            <dirty> <batman> <vlan> <batman-type> <dev>\n");
++	seq_puts(seq, "(No.)   [idx] <src>             <dst>             <realsrc>         <realdst>         <orig/neigh>      <dirty> <batman> <vlan> <batman-type> <dev>\n");
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+ 		if(!hlist_empty(&bats[idx])) {
+ 			hlist_for_each_entry(bat, &bats[idx], list) {

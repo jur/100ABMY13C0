@@ -1,0 +1,113 @@
+#!/bin/sh
+GETMIB="flash get"
+SET_FIRST_CONFIG(){
+	echo "----CONFIG_SYS_MODE----"
+}
+
+CLEAN_IPTABLES() {
+	iptables -F;iptables -X;iptables -Z
+	iptables -F -t mangle;iptables -X -t mangle;iptables -Z -t mangle
+	iptables -F -t nat;iptables -X -t nat;iptables -Z -t nat
+	iptables -F -t raw;iptables -X -t raw;iptables -Z -t raw
+	iptables -P INPUT DROP; iptables -P FORWARD DROP
+}
+
+SET_ROUTER_MODE(){
+	echo "----ROUTER_MODE----"
+	/usr/sbin/ip_forward_switch
+	/usr/sbin/update_sys_dns
+	/etc/init.d/dnsmasq restart
+	/etc/init.d/zy1905 restart
+	/etc/init.d/wanport_monitor restart
+	/etc/init.d/bwm restart
+	/etc/init.d/netprobe restart
+	/etc/init.d/ap_steer restart
+	/etc/init.d/link_monitor Ext stop
+	/etc/init.d/APPNotification start
+	/etc/init.d/RA_status stop
+	/etc/init.d/RA_status start
+	/etc/init.d/dhcp6c restart
+	/etc/init.d/extender_monitor restart
+	/sbin/update_hosts_file router
+	/etc/init.d/gre_daemon stop
+	/etc/init.d/gre_daemon start
+	/etc/init.d/zapi_service start
+#	/sbin/update_batman_gw_mode router
+	uci set firewall.remote_ssh.interface="0"
+	local System_install_mode=$(uci get system.main.install_mode)
+	[ "$System_install_mode" == "1" ] && /usr/sbin/znet_setroot
+	uci commit 
+	/etc/init.d/dropbear restart
+}
+
+
+SET_AP_MODE(){
+	echo "----AP_MODE----"
+	/usr/sbin/ip_forward_switch
+	/etc/init.d/dnsmasq stop
+	/etc/init.d/zy1905 restart
+	/etc/init.d/netprobe restart
+	/etc/init.d/ap_steer stop
+	/etc/init.d/link_monitor Ext restart
+	/etc/init.d/radvd stop
+	/etc/init.d/RA_status stop
+	/etc/init.d/dhcp6c stop
+	/etc/init.d/dhcp6s stop
+	/sbin/update_hosts_file ap
+	# /etc/init.d/dropbear start
+	/etc/init.d/dropbear restart
+	/etc/init.d/gre_daemon stop
+	/etc/init.d/gre_daemon start
+	/etc/init.d/zapi_service start
+#	/sbin/update_batman_gw_mode ap
+}
+
+SET_BRIDGE_MODE(){
+	echo "----BRIDGE_MODE----"
+	/usr/sbin/ip_forward_switch
+	#/etc/init.d/dnsmasq restart
+	/usr/sbin/update_sys_dns
+	/etc/init.d/zy1905 restart
+	/etc/init.d/wanport_monitor restart
+	/etc/init.d/bwm restart
+	#Miniupnpd mirgated from WSQ50 to instead of miniigd
+	#/usr/sbin/zy_miniigd stop
+	/etc/init.d/miniupnpd stop
+	/etc/init.d/netprobe restart
+	/etc/init.d/ap_steer restart
+	/etc/init.d/link_monitor Ext stop
+	/etc/init.d/APPNotification start
+	/etc/init.d/radvd stop
+	/etc/init.d/RA_status stop
+	/etc/init.d/dhcp6c stop
+	/etc/init.d/dhcp6s stop
+	/etc/init.d/myZyXELcloud-Agent restart
+	/usr/sbin/guest_wlan_nat start
+	/etc/init.d/extender_monitor restart
+	/sbin/update_hosts_file bridge
+	/etc/init.d/gre_daemon stop
+	/etc/init.d/gre_daemon start
+	/etc/init.d/zapi_service start
+	echo "restart dnsmasq service"
+	/etc/init.d/dnsmasq restart
+#	/sbin/update_batman_gw_mode router
+	#uci set firewall.remote_ssh.interface="0"
+    #uci commit
+	/etc/init.d/dropbear restart
+}
+
+INSTALL_MODE=$(uci get system.main.install_mode)
+if [ "$INSTALL_MODE" = "0" ]; then
+	SET_FIRST_CONFIG
+fi
+eval `$GETMIB OP_MODE`
+if [ "$OP_MODE" = "0" ]; then
+	SET_ROUTER_MODE
+elif [ "$OP_MODE" = "1" ]; then
+	OPERATION_ROLE=$(uci get system.main.operation_role)
+	if [ "$OPERATION_ROLE" = "controllee" ]; then
+		SET_AP_MODE
+	elif [ "$OPERATION_ROLE" = "controller" ]; then
+		SET_BRIDGE_MODE
+	fi
+fi

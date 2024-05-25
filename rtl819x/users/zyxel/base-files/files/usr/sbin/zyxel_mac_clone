@@ -1,0 +1,64 @@
+#!/bin/sh
+
+default_mac(){
+    flash get HW_NIC1_ADDR | awk -F "=" '{print $2}' | echo $(awk '{print toupper($0)}') > /var/default_wan_mac
+    local mac1=`cat /var/default_wan_mac | cut -c 1-2`
+    local mac2=`cat /var/default_wan_mac | cut -c 3-4`
+    local mac3=`cat /var/default_wan_mac | cut -c 5-6`
+    local mac4=`cat /var/default_wan_mac | cut -c 7-8`
+    local mac5=`cat /var/default_wan_mac | cut -c 9-10`
+    local mac6=`cat /var/default_wan_mac | cut -c 11-12`
+    echo "$mac1:$mac2:$mac3:$mac4:$mac5:$mac6" > /var/default_wan_mac
+}
+
+set_mac(){
+    local mac_status=`uci get network.wan.wan_mac_status`
+    local wan_ifname=`uci get network.wan.ifname`
+
+    local cur_mac_value=`ifconfig $wan_ifname | grep 'HWaddr' | awk '{print $5}'` 
+
+    if [ "$mac_status" == "0" ] || [ -z "$mac_status" ];then
+        [ -f /var/default_wan_mac ] || exit 0
+        local default_mac_value=`cat /var/default_wan_mac`
+        if [ $default_mac_value != $cur_mac_value ];then
+            ifconfig $wan_ifname down
+            ifconfig $wan_ifname hw ether "$default_mac_value"
+            ifconfig $wan_ifname up
+        fi
+    elif [ "$mac_status" == "1" ];then
+        local clone_ip_mac=`uci get network.wan.wan_clone_ip_mac`
+        if [ $clone_ip_mac != $cur_mac_value ];then
+            ifconfig $wan_ifname down
+            ifconfig $wan_ifname hw ether "$clone_ip_mac"
+            ifconfig $wan_ifname up
+        fi
+    elif [ "$mac_status" == "2" ];then
+        local set_mac_value=`uci get network.wan.wan_set_mac`
+        if [ $set_mac_value != $cur_mac_value ];then
+            ifconfig $wan_ifname down	
+            ifconfig $wan_ifname hw ether "$set_mac_value"
+            ifconfig $wan_ifname up
+        fi
+    fi
+}
+
+usage(){
+        echo "Usage: zyxel_mac_clone [boot|reset]"
+}
+
+if [ "$#" -ne 1 ]; then
+        usage
+        exit 1
+fi
+
+case $1 in
+        "boot")
+                default_mac
+        ;;
+        "reset")
+                 set_mac
+        ;;
+        *)
+                echo "Wrong parameter!!"
+        ;;
+esac

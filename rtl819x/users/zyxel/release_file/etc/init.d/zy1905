@@ -1,0 +1,115 @@
+#!/bin/sh
+# Copyright (C) 2006-2010 OpenWrt.org
+START=98
+
+Monitorpid=
+ 
+check_zy1905Monitor() {
+        Monitorpid=$(ps | grep "/etc/zy1905/zy1905Monitor" | grep "grep" -v | awk '{print $1}')
+ 
+        if [ "$Monitorpid" == "" ] ; then
+                /etc/zy1905/zy1905Monitor &
+        fi
+}
+
+start() {
+	#Enable zy905
+
+	# get config #########################################################
+	#get DeviceMode
+	#DeviceMode=`uci get system.main.system_mode`
+	OpRole=`uci get system.main.operation_role`
+	DeviceType=0
+
+	#check ApproveFlag
+        ApproveFlag=`uci get zy1905.approvelist.approvelist_flag`
+        if [ "$ApproveFlag" != "0" ] && [ "$ApproveFlag" != "1" ]; then
+                ApproveFlag=1
+                uci set wireless.wifi.ApproveFlag=1
+                uci commit wireless
+        fi
+
+	# set config #########################################################
+	SearchFlag=1
+	RenewFlag=1
+	#DeviceType
+	if [ "$OpRole" = "controller" ] ; then
+		DeviceType=0
+		SearchFlag=1
+		RenewFlag=1
+	fi
+	if [ "$OpRole" = "controllee" ] ; then
+		DeviceType=1
+		SearchFlag=0
+		RenewFlag=1
+	fi
+	
+	#AP_autoconfig
+	AP_autoconfig=0
+	if [ "$APautoconfig24G" == 0 ] && [ "$APautoconfig5G" == 0 ]; then
+		AP_autoconfig=0
+	fi
+	if [ "$APautoconfig24G" == 1 ] && [ "$APautoconfig5G" == 0 ]; then
+		AP_autoconfig=1
+	fi
+	if [ "$APautoconfig24G" == 0 ] && [ "$APautoconfig5G" == 1 ]; then
+		AP_autoconfig=2
+	fi
+	if [ "$APautoconfig24G" == 1 ] && [ "$APautoconfig5G" == 1 ]; then
+		AP_autoconfig=3
+	fi
+
+	#echo "zy1905 init config : DeviceType=${DeviceType} , AP_autoconfig=${AP_autoconfig} , ApproveFlag=${ApproveFlag}"
+	echo "zy1905 init config : DeviceType=${DeviceType} , SearchFlag=${SearchFlag} , RenewFlag=${RenewFlag}, ApproveFlag=${ApproveFlag}"
+	
+	#enable zy1905
+	#/usr/sbin/zy1905 -d 0 -x ${DeviceType} -y ${AP_autoconfig} -z ${AP_autoconfig} -a ${ApproveFlag} &
+	/usr/sbin/zy1905 -d 0 -x ${DeviceType} -y ${SearchFlag} -z ${RenewFlag} -a ${ApproveFlag} -w 1 &
+
+        #Enable check_zy1905Monitor
+        sleep 1
+        check_zy1905Monitor
+}
+
+stop() {
+        #echo Disable zy1905
+ 
+        pid=$(ps | grep "/usr/sbin/zy1905" | grep "grep" -v | awk '{print $1}')
+#       echo "pid="$pid
+        if [ "$pid" != "" ] ; then
+                kill -9 $pid
+        fi
+
+        Monitorpid=$(ps | grep "/etc/zy1905/zy1905Monitor" | grep "grep" -v | awk '{print $1}')
+#       echo "pid="$pid
+        if [ "$Monitorpid" != "" ] ; then
+                kill -9 $Monitorpid
+        fi
+}
+ 
+restart() {
+        stop
+        sleep 1
+        start
+}
+
+
+case "$1" in
+        "start")
+                start
+        ;;
+        "restart")
+                restart
+        ;;
+        "stop")
+                stop
+        ;;
+        *)
+        echo "Invalid command: $0 $1"
+        echo "example:"
+        echo "         1.$0 start"
+        echo "         2.$0 restart "
+        echo "         3.$0 stop "
+        ;;
+esac
+

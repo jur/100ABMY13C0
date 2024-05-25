@@ -1,0 +1,44 @@
+#!/bin/sh
+# Copyright (C) 2006-2011 OpenWrt.org
+
+#Fix using static IP is hard to complete installation.
+if [ "$@" != "wan" ]; then
+    #ifup br0
+    /usr/sbin/ifdown "$@"
+else
+    #ifup wan
+    if [ $(uci get network.wan.proto) == "pppoe" ]; then
+        /usr/sbin/ifdown "$@"
+    else
+        echo "not in pppoe mode, Do not ifdown wan interface first....."
+    fi
+fi
+
+. /sbin/functions.sh
+[ $# = 0 ] && { echo "  $0 <group>"; exit; }
+
+case "$1" in
+	"-a")
+		[ -e "/tmp/resolv.conf.auto" ] && rm /tmp/resolv.conf.auto
+		config_cb() {
+			[ interface != "$1" -o -z "$2" ] || eval "$0 -w $2"
+		}
+		config_load network
+		exit 0
+	;;
+	"-w")   shift ;;
+esac
+
+include /sbin
+scan_interfaces
+
+config_get ifname "$1" device
+for dev in ${ifname:-$1}; do
+	[ "$dev" = "br0" ] && {
+		local iface=`uci get network.br0.ifname`
+		setup_interface_static "$iface" "$dev"
+	} || {
+		setup_interface "$dev" "$1"
+	}
+done
+

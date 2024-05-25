@@ -1,0 +1,26 @@
+--- a/Makefile.linux	2018-04-13 16:37:52.957562221 +0800
++++ b/Makefile.linux	2018-04-13 16:37:54.538352227 +0800
+@@ -105,8 +105,8 @@
+ ifeq ($(TEST), 1)
+ CPPFLAGS := $(CPPFLAGS) -DIPTABLES_143
+ # the following sucks, but works
+-LDLIBS = $(IPTABLESPATH)/libiptc/.libs/libip4tc.o
+-#LDLIBS = $(IPTABLESPATH)/libiptc/.libs/libiptc.a
++LDLIBS = $(IPTABLESPATH)/libiptc/libip4tc.o
++#LDLIBS = $(IPTABLESPATH)/libiptc/libiptc.a
+ else # ifeq ($(TEST), 1)
+ LDLIBS = $(IPTABLESPATH)/libiptc/libiptc.a
+ endif # ifeq ($(TEST), 1)
+--- a/netfilter/Makefile	2018-04-13 16:34:49.524614228 +0800
++++ b/netfilter/Makefile	2018-04-13 16:43:33.558604371 +0800
+@@ -19,8 +19,8 @@
+ ifeq ($(TEST), 1)
+ CFLAGS := $(CFLAGS) -DIPTABLES_143
+ # the following sucks, but works
+-LIBS = $(IPTABLESPATH)/libiptc/.libs/libip4tc.o
+-#LIBS = $(IPTABLESPATH)/libiptc/.libs/libiptc.a
++LIBS = $(IPTABLESPATH)/libiptc/libip4tc.o
++#LIBS = $(IPTABLESPATH)/libiptc/libiptc.a
+ else
+ LIBS = $(IPTABLESPATH)/libiptc/libiptc.a
+ endif

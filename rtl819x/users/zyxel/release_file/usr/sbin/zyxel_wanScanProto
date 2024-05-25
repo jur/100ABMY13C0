@@ -1,0 +1,100 @@
+#!/bin/sh
+
+## That is to detect wan support protocol, when executing finish and check the /var/wanSupportProto value.
+## The value is as : 
+##                     0   none
+##                     1   IPoE
+##                     2   PPPoE
+##                     3   IPoE+PPPoE
+
+GETMIB="flash get"
+eval `$GETMIB OP_MODE`
+
+local i=0
+local wan_proto=0
+local check_times=6
+local feedback_info
+
+[ "$OP_MODE" == "0" ] && {
+  [ -f /config/uci/network ] && {
+	local wan_ifname=`uci get network.wan.ifname`
+	local wan_pluginStatus=`cat /proc/$wan_ifname/link_status`
+
+	if [ "$wan_pluginStatus" == "0" ]; then
+		echo "==== WAN port does not plug-in, please re-checking is wan port again. ====" > /dev/console
+		exit 0
+	fi
+
+	[ -f /bin/udhcpc ] || {
+		echo "==== It can't scanner wan protocol, because does not have udhcpc command. ====" > /dev/console
+		exit 0
+	}
+
+	[ -f /bin/pppoe-discovery ] || {
+		echo "==== It can't scanner wan protocol, because does not have pppoe-discover command. ====" > /dev/console
+		exit 0
+	}
+	
+	/bin/udhcpc -i $wan_ifname -b -s /usr/share/udhcpc/zyxel_wanbound.sh -q &
+
+	i=0
+	while [ "$i" -lt "$check_times" ];
+	do
+		[ -f "/var/udhcpc_wanScan_info" ] && {
+			feedback_info=$(cat /var/udhcpc_wanScan_info | grep -r '$wan_ifname')
+			[ -n $feedback_info ] && {
+					wan_proto="$(($wan_proto+1))"
+					local udhcpc_pid=$(ps | grep "/bin/udhcpc" | grep "/usr/share/udhcpc/zyxel_wan" | grep 'grep' -v | awk '{print $1}')
+					[ -n $udhcpc_pid ] && {
+						kill -9 $udhcpc_pid 2>/dev/null
+					}
+					rm -rf /var/udhcpc_wanScan_info
+					break
+			}
+		}
+		i="$(($i+1))"
+		sleep 1
+	done
+	
+	local udhcpc_pid=$(ps | grep "/bin/udhcpc" | grep "/usr/share/udhcpc/zyxel_wan" | grep 'grep' -v | awk '{print $1}')
+	[ -n $udhcpc_pid ] && {	
+		[ -f "/var/udhcpc_wanScan_info" ] && rm -rf /var/udhcpc_wanScan_info
+		kill -9 $udhcpc_pid 2>/dev/null
+	}
+
+	/bin/pppoe-discovery -I $wan_ifname 1> /var/pppoe-discovery_feedback &
+
+	i=0
+	while [ "$i" -lt "$check_times" ];
+	do
+		[ -f "/var/pppoe-discovery_feedback" ] && {
+			feedback_info=$(cat /var/pppoe-discovery_feedback | grep -r 'Access-Concentrator')
+			[ -z $feedback_info ] || {
+					local pppoe_discovery_pid=$(pidof pppoe-discovery)
+					[ -n $pppoe_discovery_pid ] && {
+						wan_proto="$(($wan_proto+2))"
+						kill -9 $pppoe_discovery_pid 2>/dev/null
+					}
+					rm -rf /var/pppoe-discovery_feedback
+					break
+			}
+		}
+		i="$(($i+1))"
+		sleep 1
+	done
+	
+	local pppoe_discovery_pid=$(pidof pppoe-discovery)
+	[ -n $pppoe_discovery_pid ] && {
+		kill -9 $pppoe_discovery_pid 2>/dev/null
+		[ -f /var/pppoe-discovery_feedback ] && rm -rf /var/pppoe-discovery_feedback
+	}
+
+	echo "$wan_proto" > /var/wanSupportProto
+  }
+
+  [ -f /config/uci/network ] || {
+	echo "==== Here is not /config/uci/network file. ====" > /dev/console
+  }
+} || {
+	echo "==== zyxel_wanScanProto.sh are only working on Router Mode. ====" > /dev/console
+}

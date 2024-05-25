@@ -1,0 +1,146 @@
+#!/bin/sh
+# . /etc/functions.sh
+# . /lib/functions/boot.sh
+# include /lib/upgrade
+
+FILE=/tmp/fw.bin
+RESULT_FILE=/tmp/FWupgrade_state
+CHECK_FILE=/tmp/zy1905/FWupgrade_check_flag
+FINISH_FILE=/tmp/zy1905/FWupgrade_check_finish
+CHECK=0
+
+UPGRADE_FILE=$1
+SAVE_FILE=$2
+
+echo "[zy1905 FW_upgrade] Run FW upgrade... ... "
+
+/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] Run FW upgrade."
+
+/sbin/zyxel_led_ctrl FWupgrade &
+
+if [ $UPGRADE_FILE != "NULL" ]; then
+	FILE=$UPGRADE_FILE
+fi
+
+if [ -f $FINISH_FILE ]; then
+	echo "[zy1905 FW_upgrade] fw_upgrade is finish, not run fw_upgrade" > /dev/console
+	/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] FWupgrade is finish"
+	/etc/zy1905/Output_log.sh "[zy1905 FW_upgrade] Upgrade is finish"
+	/usr/sbin/zy1905App 19 5
+	exit
+fi
+
+if [ -f $CHECK_FILE ]; then
+	/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] Device is FWupgrade now!!!"
+	/etc/zy1905/Output_log.sh "[zy1905 FW_upgrade] Device is FWupgrade now!!!"
+	echo "Device is FWupgrade now!!!" > /dev/console
+	exit
+fi
+echo "1" > $CHECK_FILE
+sync
+
+if [ ! -f $FILE ]; then
+	/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] FILE=$FILE not exist"
+	/etc/zy1905/Output_log.sh "[zy1905 FW_upgrade] FILE=$FILE not exist"
+	echo "[zy1905 FW_upgrade] $FILE not exist"
+	/usr/sbin/zy1905App 11 0
+	#/sbin/zyxel_led_ctrl Error &
+	/sbin/zyxel_led_ctrl BootFinish &
+	rm -f $CHECK_FILE
+	exit
+fi
+
+######## kill
+#killall watch && /bin/SB_stop_ck &
+#etc/init.d/streamboost stop
+# echo 3 > /proc/sys/vm/drop_caches && sleep 1
+# cp /sbin/reboot /tmp
+
+######## Run FW upgrade
+echo "[zy1905 FW_upgrade] Start to run fw_upgrade & wait 3 sec"
+kill -SIGUSR1 `cat /tmp/zyfwd.pid`
+sleep 3
+
+if [ -f $RESULT_FILE ]; then
+	echo "[zy1905 FW_upgrade] search file=$RESULT_FILE"
+	while [ "$CHECK" -eq "0" ]
+	do
+		# Result=`cat $RESULT_FILE | grep "Upgrade check success"`
+		Result=`cat $RESULT_FILE`
+		echo "[zy1905 FW_upgrade] Success Result = $Result"
+		if [ "$Result" == "2" ]; then
+			/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] Success Result = $Result"
+			CHECK=1
+
+			echo "[zy1905 FW_upgrade] FWupgrade Upgrade check success"
+			/etc/zy1905/Output_log.sh "[FWupgrade] Upgrade check success"
+			echo "[zy1905 FW_upgrade] zy1905App 11 5 &"
+			/usr/sbin/zy1905App 11 5
+			sleep 5
+
+			#/etc/init.d/dlna stop
+			#/etc/init.d/samba stop
+			#killall -9 proftpd &
+			echo 1 > /proc/sys/vm/drop_caches 
+			echo '[zy1905 FW_upgrade] Firmware upgrading, Please wait !' > /dev/console
+			echo "[zy1905 FW_upgrade] Run fw_upgrade exec_mtd" > /dev/console
+			#fw_upgrade exec_mtd && sleep 2 && /tmp/reboot &
+
+			if [ $SAVE_FILE != "NULL" ]; then
+				model_name=$(atsh | grep Project | awk '{print $4}')
+				echo "[zy1905 FW_upgrade] Copy fw.bin to /tmp/wsr/FWFile/$model_name/$SAVE_FILE" > /dev/console
+				/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] Copy rootfs to /tmp/wsr/FWFile/$SAVE_FILE"
+				rm -rf /tmp/wsr/FWFile/
+				mkdir -p /tmp/wsr/FWFile/$model_name
+				cp $FILE /tmp/wsr/FWFile/$model_name/$SAVE_FILE
+				sync
+				sleep 1
+			fi
+
+			echo "[zy1905 FW_upgrade] fw_upgrade finish &  zy1905App 19 5 " > /dev/console
+			/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] FWupgrade success"
+			/etc/zy1905/Output_log.sh "[zy1905 FW_upgrade] Upgrade success"
+			/usr/sbin/zy1905App 19 5
+			echo "1" > $FINISH_FILE
+			exit
+		else
+			echo "[zy1905 FW_upgrade] Not find"
+			if [ "$Result" == "4" ]; then
+				echo "[zy1905 FW_upgrade] Not find"
+				exit
+			fi
+		fi
+		
+		Result=`cat $RESULT_FILE `
+		echo "[zy1905 FW_upgrade] Wrong Result = $Result"
+		if [ "$Result" == "5" ]; then
+			/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] Wrong Result = $Result"
+			echo "[zy1905 FW_upgrade] FW upgrade check fail"
+			/etc/zy1905/Output_log.sh "[zy1905 FW_upgrade] Wrong Result = $Result, Upgrade check fail"
+			echo "[zy1905 FW_upgrade] zy1905App 11 0 &"
+			/usr/sbin/zy1905App 11 0
+			# /sbin/zyxel_led_ctrl Error &
+			/sbin/zyxel_led_ctrl BootFinish &
+			rm -f $CHECK_FILE
+			exit
+		else
+			echo "[zy1905 FW_upgrade] Not find"
+		fi
+
+		sleep 1
+	done
+else
+	/usr/sbin/FWupgradelog.sh "[zy1905 FW_upgrade] FWupgrade Upgrade fail, file not find $RESULT_FILE"
+	/etc/zy1905/Output_log.sh "[zy1905 FW_upgrade] FWupgrade Upgrade fail, file not find $RESULT_FILE"
+	echo "[zy1905 FW_upgrade] FWupgrade Upgrade fail, file not find $RESULT_FILE"
+	echo "[zy1905 FW_upgrade] zy1905App 11 0 &"
+	/usr/sbin/zy1905App 11 0
+	#/sbin/zyxel_led_ctrl Error &
+	/sbin/zyxel_led_ctrl BootFinish &
+	sleep 3
+
+	#rm /tmp/rootfs
+	#/usr/local/bin/check_apply_appflow
+fi
+	rm -f $CHECK_FILE
+exit

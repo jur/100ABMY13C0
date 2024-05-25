@@ -1,0 +1,41 @@
+#!/bin/sh
+# Copyright (C) 2008-2010 OpenWrt.org
+
+START=97
+
+start() {
+	### applying after WAN connection up ###
+	exit 0
+	
+}
+
+stop() {
+	/usr/sbin/portTrigger stop
+	
+}
+
+restart() {
+	/usr/sbin/portTrigger restart
+	
+}
+
+reload() {
+	/usr/sbin/portTrigger reload
+	
+}
+
+
+case "$1" in
+	"start" )
+		start
+		;;
+	"stop" )
+		stop
+		;;
+	"reload" )
+		reload
+		;;
+	"restart" )
+		restart
+		;;
+esac

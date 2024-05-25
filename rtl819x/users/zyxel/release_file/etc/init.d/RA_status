@@ -1,0 +1,43 @@
+#!/bin/sh
+. /sbin/functions.sh
+
+stop() { 
+	kill -9 $(cat /var/run/RA_status.pid) 
+	rm -f /var/run/RA_status.pid
+}
+
+
+start() {
+    ## This shell script is IPv6 only
+    wanface=$(uci get dhcp6c.basic.interface)
+    IsIpv6=$(uci get network.$wanface.ipv6)
+    SystemMode=$(uci get system.main.system_mode)
+    if [ -z "$IsIpv6" -o "$IsIpv6" == "0" ];then
+        return
+    fi
+    
+    [ -e /var/run/RA_status.pid ] && return 0
+
+    /usr/bin/RA_status &  
+}
+
+case "$1" in
+    "start")
+        start
+    ;;
+    "stop")
+        stop
+    ;;
+        "restart")
+        stop
+        start
+    ;;
+    *)
+    echo "Invalid command: $0 $1"
+    echo "example:"
+    echo "         1.$0 start"
+    echo "         2.$0 stop "
+    echo "         3.$0 restart "
+    ;;
+esac
+

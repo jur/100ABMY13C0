@@ -1,0 +1,87 @@
+#!/bin/sh
+
+PKGPATH="/usr"
+
+START=1110
+
+
+start() {
+	killall -9 xmpp_client_monitor.sh
+	killall -9 start_cloudagent.sh
+	killall -9 get_xmpp_info.sh
+	killall -9 zyxel_device_register
+	killall -9 zyxel_xmpp_client
+	sleep 1
+	# agent_soft_link.sh
+	
+	mkdir -p /tmp/ApplicationData/cloudagent
+	mkdir -p /tmp/.cloudagent
+
+	changeSite=$(uci get cloudagent.cloudagent.site_flag)
+	if [ "$changeSite" == "beta" ]; then
+		cp /usr/share/zyxel_beta_cloud_agent_cert.conf -a /tmp/.cloudagent/zyxel_cloud_agent_cert.conf
+		server_url=$(cat /usr/share/zyxel_beta_cloud_agent_configure.conf | awk -F'=' '{print $2}')
+	else
+		cp /usr/share/zyxel_cloud_agent_cert.conf -a /tmp/.cloudagent/zyxel_cloud_agent_cert.conf
+		server_url=$(cat /usr/share/zyxel_cloud_agent_configure.conf | awk -F'=' '{print $2}')
+	fi
+
+	# cp $PKGPATH/share/zyxel_cloud_agent_cert.conf -a /tmp/.cloudagent
+	#echo $PKGPATH > /tmp/.cloudagent/agent_path
+	# server_url=$(cat ${PKGPATH}/share/zyxel_cloud_agent_configure.conf | awk -F'=' '{print $2}')
+
+	# set token validation url
+	echo $server_url/user/1/token > /tmp/.cloudagent/validate_api
+	echo $server_url/d/3/register > /tmp/.cloudagent/device_register_api
+	echo $server_url/d/1/pairing > /tmp/.cloudagent/device_pair_api
+	echo $server_url/d/3/register/lite > /tmp/.cloudagent/device_findme_api
+	# set update online status url
+	#echo $server_url/device/1/online_status > /tmp/.cloudagent/online_status_api
+	$PKGPATH/sbin/start_cloudagent.sh &
+	monitor_process=$(pgrep -f xmpp_client_monitor)
+	if [ -z "$monitor_process" ];then
+		$PKGPATH/sbin/xmpp_client_monitor.sh &
+	fi
+	${PKGPATH}/sbin/cloudagent_logger.sh "START AGENT."
+}	
+
+stop() {
+	killall -9 xmpp_client_monitor.sh
+	killall -9 start_cloudagent.sh
+	killall -9 get_xmpp_info.sh
+	killall -9 zyxel_device_register	
+    killall -9 zyxel_xmpp_client
+    ${PKGPATH}/sbin/cloudagent_logger.sh "STOP AGENT."
+}
+
+restart() {
+	stop
+	sleep 1
+	start
+	${PKGPATH}/sbin/cloudagent_logger.sh "RESTART AGENT."
+}
+
+reload() {
+	stop
+	sleep 1
+	start
+	${PKGPATH}/sbin/cloudagent_logger.sh "RESTART AGENT."
+}
+
+case "$1" in
+	"restart" )
+		restart	
+		;;
+	
+	"reload" )
+		reload
+		;;
+	
+	"start" | "boot" )
+		start
+		;;
+	
+	"stop" )
+		stop
+		;;
+esac

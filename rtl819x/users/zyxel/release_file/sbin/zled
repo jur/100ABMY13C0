@@ -1,0 +1,114 @@
+#!/bin/sh
+
+PX=/sys/bus/i2c/devices/0-0032/leds
+
+#R  G  B
+#D1 D2 D7
+#D3 D4 D8
+#D5 D6 D9
+
+LEDS="1 2 7 3 4 8 5 6 9"
+
+
+help()
+{
+  echo $0 def [on]		- set default brightness on/off for all
+  echo $0 setb D1..D9 0..255	- set brightness, i.e. $0 setb D1 255
+  echo $0 setba 0..255		- set brightness to all LEDs, i.e. $0 setba 255
+  echo $0 setc D1..D9 0..255	- set current i.e. $0 setc D9 128
+  echo $0 show			- show brightness/current setting
+}
+
+default()
+{
+  for D in $LEDS
+  do
+    echo 223 > ${PX}/D${D}/led_current
+    echo 0 > ${PX}/D${D}/brightness
+  done
+}
+
+default_on()
+{
+  for D in $LEDS
+  do
+    echo 223 > ${PX}/D${D}/led_current
+    echo 255 > ${PX}/D${D}/brightness
+  done
+}
+
+set_brightness()
+{
+  local led=$1
+  local val=${2:-255}
+  if [ -f "${PX}/${led}/brightness" ]; then
+     echo $val > ${PX}/${led}/brightness
+  else
+    echo "No such device, $led"
+  fi
+}
+
+set_current()
+{
+  local led=$1
+  local val=${2:-255}
+  if [ -f "${PX}/${led}/led_current" ]; then
+     echo $val > ${PX}/${led}/led_current
+  else
+    echo "No such device, $led"
+  fi
+}
+
+show_current_setting()
+{
+  echo "-- current --"
+  for D in $LEDS
+  do
+    val=`cat ${PX}/D${D}/led_current`
+    echo D$D = $val
+  done
+}
+
+show_brightness_setting()
+{
+  echo "-- brightness --"
+  for D in $LEDS
+  do
+    val=`cat ${PX}/D${D}/brightness`
+    echo D$D = $val
+  done
+}
+
+case $1 in
+  def)
+    if [ -z "$2" ]; then
+      default
+    else
+      default_on
+    fi
+    ;;
+  setb)
+    set_brightness $2 $3
+    ;;
+  setba)
+    val=${2:-255}
+    for D in $LEDS
+    do
+      set_brightness D$D $val
+    done
+    ;;
+  setc)
+    set_current $2 $3
+    ;;
+  show)
+    echo "      R  G  B"
+    echo "LED1: D1 D2 D7"
+    echo "LED2: D3 D4 D8"
+    echo "LED3: D5 D6 D9"
+    show_current_setting
+    show_brightness_setting
+    ;;
+  *)
+    help
+    ;;
+esac

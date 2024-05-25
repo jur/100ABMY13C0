@@ -1,0 +1,89 @@
+#!/bin/sh
+
+GETMIB="flash get"
+eval `$GETMIB OP_MODE`
+local mode_type
+local trigger_type
+
+start() {
+	[ "$OP_MODE" == "0" ] && {
+		mode_type="Router Mode"
+		trigger_type="wan"
+		wan_proto=`uci get network.wan.proto`
+		/usr/sbin/ifup br0
+	}
+	
+	[ "$OP_MODE" == "1" ] && {
+		# First to clean up eth1 IP address
+		ip address flush dev eth1
+		mode_type="Bridge Mode"
+		trigger_type="br0"
+	}
+
+	/usr/sbin/ifup $trigger_type
+
+	if [ "$mode_type" == "Router Mode" ] && [ "$trigger_type" == "wan" ] && [ "$wan_proto" == "static" ]; then
+		touch /var/wan_IP_trigger
+		/usr/sbin/zyxel_event_trigger eth1 UP
+	fi
+	echo "network $mode_type start finish." > /dev/console
+}
+
+restart() {
+	[ "$OP_MODE" == "0" ] && {
+		mode_type="Router Mode"
+		trigger_type="wan"
+		wan_proto=`uci get network.wan.proto`
+		/usr/sbin/ifup br0
+	}
+	
+	[ "$OP_MODE" == "1" ] && {
+		# First to clean up eth1 IP address
+		ip address flush dev eth1
+		mode_type="Bridge Mode"
+		trigger_type="br0"
+	}
+
+	/usr/sbin/ifup $trigger_type
+
+	if [ "$mode_type" == "Router Mode" ] && [ "$trigger_type" == "wan" ] && [ "$wan_proto" == "static" ]; then
+		touch /var/wan_IP_trigger
+		/usr/sbin/zyxel_event_trigger eth1 UP
+	fi
+	echo "network $mode_type restart finish." > /dev/console
+}
+
+stop() {
+	[ "$OP_MODE" == "0" ] && {
+		mode_type="Router Mode"
+		trigger_type="wan"
+		/usr/sbin/ifdown br0
+	}
+	
+	[ "$OP_MODE" == "1" ] && {
+		mode_type="Bridge Mode"
+		trigger_type="br0"
+	}
+
+	/usr/sbin/ifdown $trigger_type
+	echo "network $mode_type stop finish." > /dev/console
+}
+
+case "$1" in
+	"start")
+		start
+	;;
+	"restart")
+		restart
+	;;
+	"stop")
+		stop
+	;;
+	*)
+	echo "Invalid command: $0 $1"
+	echo "example:"
+	echo "         1.$0 start"
+	echo "         2.$0 restart "
+	echo "         3.$0 stop "
+	;;
+esac

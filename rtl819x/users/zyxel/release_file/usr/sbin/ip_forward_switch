@@ -1,0 +1,8 @@
+#!/bin/sh
+
+eval `flash get OP_MODE`
+if [ "$OP_MODE" = "0" ]; then   #route modde
+	echo 1 > /proc/sys/net/ipv4/ip_forward
+elif [ "$OP_MODE" = "1" ]; then #bridge mode
+	echo 1 > /proc/sys/net/ipv4/ip_forward
+fi

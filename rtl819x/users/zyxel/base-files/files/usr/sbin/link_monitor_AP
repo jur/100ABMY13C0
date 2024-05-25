@@ -1,0 +1,469 @@
+#!/bin/sh
+
+## When ether error number being equal to or greater than this value, reset ether ports.
+## Check backhaul connection periodically.
+max_internet_disconnect_cnt=3
+chk_internet_cnt="/tmp/check_internet_err_cnt"
+max_reset_ether_ports=3
+reset_ether_ports_cnt="/tmp/reset_ether_ports_cnt"
+
+# Checking install mode, if DUT is installed, running uplink check
+install_mode=$(uci get system.main.install_mode)
+if [ "$install_mode" == "0" ]; then
+    exit
+fi
+
+LOG_FILE="/tmp/link_monitor_log"
+
+if [ -f $LOG_FILE ]; then
+	line_count=$(wc -l $LOG_FILE | cut -f1 -d' ')
+
+	if [ $line_count -gt 100 ]; then
+		rm $LOG_FILE
+	fi
+fi
+
+local product_name=$(uci get system.main.product_name)
+local brlan="br0"
+
+#after reading/writing data on USB, it will release cash memory
+top -n 1 > /tmp/top_log
+
+local io_value=$( cat /tmp/top_log | grep "CPU:" | awk '{print $10}' | awk '{FS="%"} {print $1}' )
+
+if [ $io_value -ge 1 ] ;then
+	echo 0 > /tmp/io_value_sum
+fi
+
+[ -f /tmp/top_log ] && { 
+	rm /tmp/top_log
+}
+
+if [ -f /tmp/io_value_sum ] ;then
+	local io_value_sum=$(cat /tmp/io_value_sum)
+	local sum=$(($io_value_sum+1))
+
+	echo $sum > /tmp/io_value_sum	
+	
+	if [ $sum -eq 30 ] ;then
+		echo 3 > /proc/sys/vm/drop_caches
+		rm /tmp/io_value_sum
+	fi
+fi
+
+check_wifi_ap() {
+
+	eval `flash get WLAN0_MODE`
+	#eval `flash get WLAN1_MODE`
+	if [ -f /tmp/wifiAP_status ]; then
+		last_wifi_status=$(cat /tmp/wifiAP_status)
+	else
+		last_wifi_status="unknown"
+	fi
+
+	if [ "$1" == "0" ]; then
+		#disable
+		if [ "$last_wifi_status" != "down" ]; then
+			if [ "$WLAN0_MODE" == "4" ]; then
+				iwpriv wlan0 set_mib hiddenAP=1
+				iwpriv wlan0 set_mib mesh_ap_enable=0
+				iwpriv wlan0-va0 set_mib hiddenAP=1
+				iwpriv wlan0-va0 set_mib mesh_ap_enable=0
+			else
+				iwpriv wlan0 set_mib func_off=1
+				iwpriv wlan0-va0 set_mib func_off=1
+			fi
+			#if [ "$WLAN1_MODE" == "4" ]; then
+			#	iwpriv wlan1 set_mib hiddenAP=1
+			#	iwpriv wlan1 set_mib mesh_ap_enable=0
+			#	iwpriv wlan1-va0 set_mib hiddenAP=1
+			#	iwpriv wlan1-va0 set_mib mesh_ap_enable=0
+			#else
+			#	iwpriv wlan1 set_mib func_off=1
+			#	iwpriv wlan1-va0 set_mib func_off=1
+			#fi
+			#iwpriv wlan2 set_mib hiddenAP=1
+			#iwpriv wlan2 set_mib mesh_ap_enable=0
+			#iwpriv wlan2-va0 set_mib hiddenAP=1
+			#iwpriv wlan2-va0 set_mib mesh_ap_enable=0
+			iwpriv wlan2 set_mib func_off=1
+			iwpriv wlan2-va0 set_mib func_off=1
+			echo "down" > /tmp/wifiAP_status
+		fi
+	else
+		#enable
+		if [ "$last_wifi_status" != "up" ]; then
+			if [ "$WLAN0_MODE" == "4" ]; then
+				iwpriv wlan0 set_mib hiddenAP=0
+				iwpriv wlan0 set_mib mesh_ap_enable=1
+				iwpriv wlan0-va0 set_mib hiddenAP=0
+				iwpriv wlan0-va0 set_mib mesh_ap_enable=1
+			else
+				iwpriv wlan0 set_mib func_off=0
+				iwpriv wlan0-va0 set_mib func_off=0
+			fi
+			#if [ "$WLAN1_MODE" == "4" ]; then
+			#	iwpriv wlan1 set_mib hiddenAP=0
+			#	iwpriv wlan1 set_mib mesh_ap_enable=1
+			#	iwpriv wlan1-va0 set_mib hiddenAP=0
+			#	iwpriv wlan1-va0 set_mib mesh_ap_enable=1
+			#else
+			#	iwpriv wlan1 set_mib func_off=0
+			#	iwpriv wlan1-va0 set_mib func_off=0
+			#fi
+			#iwpriv wlan2 set_mib hiddenAP=0
+			#iwpriv wlan2 set_mib mesh_ap_enable=1
+			#iwpriv wlan2-va0 set_mib hiddenAP=0
+			#iwpriv wlan2-va0 set_mib mesh_ap_enable=1
+			iwpriv wlan2 set_mib func_off=0
+			iwpriv wlan2-va0 set_mib func_off=0
+			echo "up" > /tmp/wifiAP_status
+		fi
+	fi
+}
+
+check_mesh_mode() {
+	#workaround for flash reset issue. Check WLAN1_MODE is not mesh only, copy the backup file to recover it.
+	eval `flash get WLAN1_MODE`
+	if [ "$WLAN1_MODE" == "0" ]; then
+		zlog 7 2 'Check mesh mode is 0, recover to original setting.'
+		cp /config/current_setting.bin.bak /config/current_setting.bin
+		reboot -f
+	fi
+}
+
+##For QTN WiFi5G check br-lan:0 host0
+#if [ "$product_name" == "NBG6815" ] || [ "$product_name" == "NBG6816" ];then
+#	if [ -z "$( ifconfig $brlan:0 | grep "inet addr" | awk '{print $2}' | awk -F ":" '{print $2}' )" ];then
+#		brctl addif br-lan host0
+#		ifconfig br-lan:0 223.254.253.251 up
+#	fi
+#fi
+
+## Power ON or OFF ether ports.($1 : 0=OFF, 1=ON)
+func_from_zyxel_switch_port() {
+	local act=1 ## Power ON
+	if [ "$1" == "0" ]; then
+		act=0  ## Power OFF
+	fi
+
+	## for LAN port
+	for i in 1 2 4 8
+	do
+		echo "$i $act" > /proc/phyPower
+	done
+
+	## for WAN port
+	for i in 16
+	do
+		echo "$i $act" > /proc/phyPower
+	done
+}
+
+## Check to DUT connects status
+ping 8.8.8.8 -c 1 | grep time > /var/connect_internet
+local connect_value=$(cat /var/connect_internet)
+if [ "$connect_value" = "" ] ;then
+	## ping fail, use wget to check
+	rm /tmp/check_internet_ok_wget
+	## There is no "chk_internet" in WSR30. We make new one "zyxel_chk_internet" to use.
+	#chk_internet wget "http://google.com"&
+	zyxel_chk_internet wget "http://google.com" &
+	## wget & nslookup has no time out setting option, we add sleep for time out purpose
+	sleep 2
+	if [ -e /tmp/check_internet_ok_wget ];then
+		#echo "wget OK"  > /dev/console
+		rm /tmp/check_internet_ok_nslookup
+	else
+		#echo "wget time out"  > /dev/console
+		#killall chk_internet
+		killall zyxel_chk_internet
+
+		## There is no "nslookup" in WSR30.
+		rm /tmp/check_internet_ok_nslookup
+		#chk_internet nslookup "google.com" "8.8.4.4"&
+		#sleep 2
+		#[ -e /tmp/check_internet_ok_nslookup ] || {
+		#	#echo nslookup time out > /dev/console				
+		#	killall chk_internet
+		#}
+	fi
+else
+	rm /tmp/check_internet_ok_wget
+	rm /tmp/check_internet_ok_nslookup
+fi
+	
+if [ "$connect_value" != "" ] || [ -e /tmp/check_internet_ok_wget ] || [ -e /tmp/check_internet_ok_nslookup ];then
+	## Does set Auto Time zone in DUT ?
+	local tzIndex_status=$(uci get time.main.tzIndex)
+	local auto_timezone_override=$(uci get time.main.auto_timezone_override)
+	## For WSQ50, before version 3C0, timezone is manually set. 3C0 will force doing auto timezone.
+	## If "auto_timezone_override" is set to 1, auto timezone will follow regular configuration
+	if [ "$tzIndex_status" == "63" ] || [ "$auto_timezone_override" != "1" ]; then
+		local checkTime_Hour=$(date +%H)
+		local checkTime_Min=$(date +%M)
+		if [ "$checkTime_Min" == "03" ] || [ "$checkTime_Min" == "10" ]; then
+			local lastchar_num
+			local laster_serial_num=$(fw_printenv serialnum | awk -F"=" '{print $2}' | cut -c 13-13)
+			laster_serial_num=$(($laster_serial_num+0))
+			local lastchar=$(fw_printenv ethaddr | awk -F"=" '{print $2}' |sed 's/"//g' | awk -F":" 'BEGIN{OFS=""}{print $1,$2,$3,$4,$5,$6}' | cut -c 12-12)
+			case $lastchar in
+			"0")
+				lastchar_num=0
+				lastchar_num=$(($lastchar_num+0))
+				;;
+			"4")
+				lastchar_num=4
+				lastchar_num=$(($lastchar_num+0))
+			;;
+			"8")
+				lastchar_num=8
+				lastchar_num=$(($lastchar_num+0))
+			;;
+			"c")
+				lastchar_num=12
+				lastchar_num=$(($lastchar_num+0))
+			;;
+			"C")
+				lastchar_num=12
+				lastchar_num=$(($lastchar_num+0))
+			;;
+			esac
+
+			local checkTime_Sec=$(($laster_serial_num+$lastchar_num))
+			local times_sec=$(date +%S)
+			local DUT_time=$(date)
+			#echo "checkTime_Sec=$checkTime_Sec DUT_Time=$DUT_time" > /dev/console
+			if [ $times_sec -le $checkTime_Sec ]; then
+				local TZ=""
+				local TZ_time=""
+				#Auto TZ
+				for i in 0 1
+				do
+					case $i in
+					"0")
+						path=$(curl -s http://api.ipinfodb.com/v3/ip-city/?key\=8dda3a644570ff8d5bc77d4139230adb75454bab76683e0e796f02c590b50a50)
+						;;
+					"1")
+						path=$(curl -s http://addgadgets.com/ipaddress/|grep 'Time Zone'| awk 'BEGIN{FS="<td>"}{print $2}'|awk 'BEGIN{FS="</td>"}{print $1}')
+						;;
+					esac
+
+					local ip_info=$(echo $path)
+					local ip_timezone=$(echo $ip_info | awk 'BEGIN{FS=";"}{print $11}')
+					if [ "$(echo $ip_timezone | grep '..:..')" != "" ];then
+						break
+					fi
+
+					ip_timezone=$(echo $ip_info | awk 'BEGIN{FS=" "}{print $1}')
+					if [ "$(echo $ip_timezone | grep '..:..')" != "" ];then
+						break
+					fi
+				done
+
+				if [ "$(echo $ip_timezone | grep '..:..')" != "" ];then
+					local sign=$(echo $ip_timezone | grep "-")
+
+					if [ "$sign" == "" ]; then
+						local Timezone=$(echo $ip_timezone | awk 'BEGIN{FS="+"}{printf $2}' )	
+						 TZ="GMT-$Timezone"
+					else
+						Timezone=$(echo $ip_timezone | awk 'BEGIN{FS="-"}{printf $2}' )
+						TZ="GMT+$Timezone"
+					fi
+
+					TZ_time=$TZ
+					local runing_TZ=$(cat /tmp/TZ)
+
+					if [ "$TZ_time" == "$runing_TZ" ]; then
+						#echo "There are the same in TimeZone." > /dev/console
+						echo "There are the same in TimeZone."
+					else
+						#echo "TZ_time=$TZ_time  runing_TZ=$runing_TZ" > /dev/console
+						/sbin/time_daemon_AP
+					fi
+				else
+					#echo "Auto timezone is fail" > /dev/console
+					echo "Auto timezone is fail"
+				fi
+			fi
+		fi
+	fi
+fi
+
+#Check 5G low band connectivity
+check_5G_low_conn() {
+	local mesh5gLowState="/tmp/backhaul_5g_low"
+	local mesh_type="/tmp/backhaul_type"
+	local meshNbhPath="/tmp/batman_debug/batman_adv/bat0/neighbors"
+
+	if [ "" != "$(sed -n '3,$p' $meshNbhPath | grep eth)" ]; then
+		if [ ! -f $mesh_type ] || [ "$(cat $mesh_type)" == "wifi_only" ]; then
+			echo 'mixed' > $mesh_type
+			echo "ethernet mixed backhaul" > /dev/console
+			zlog 0 2 'Ethernet backhaul established'
+		fi
+	else
+		if [ ! -f $mesh_type ] || [ "$(cat $mesh_type)" == "mixed" ]; then
+			echo 'wifi_only' > $mesh_type
+			zlog 0 2 'Ethernet backhaul disconnected'
+		fi
+	fi
+
+	countryCode=$(atsh | grep 'Country' | awk -F ': ' '{print$2}')
+	if [ "$countryCode" == "E1" ]; then
+		#rateLimit=100
+		root5GlowMac=$(cat /tmp/ROOTAP_MESH_MAC | grep 'wlan0-msh0' | awk -F '=' '{print$2}')
+		lowBandRate=$(cat /tmp/assoc_list.5g | grep "$root5GlowMac" | awk -F ' ' '{print $2}' | sed -e 's/M//')
+		local connState=0
+		#Read file line by line
+		while read line; do
+			if [ ! -z $(echo $line|grep 'wlan0-msh0'| awk -F ' ' '{print$2}') ]; then
+				connState=1
+				break
+			fi
+		done < /tmp/assoc_list.5g
+
+		if [ "" != "$(sed -n '3,$p' $meshNbhPath | grep eth)" ]; then
+			[ "$(cat $mesh5gLowState)" == "mixed" ] && return "2"
+			echo 'mixed' > $mesh5gLowState
+			echo "ethernet mixed backhaul" > /dev/console
+			#zyxel_led_ctrl BootFinish
+			return "2"
+		fi
+		#if [ -z $lowBandRate ] || [ $lowBandRate -lt $rateLimit ]; then
+		if [ "$connState" == "0" ]; then
+			[ $(cat $mesh5gLowState) == "weak" ] && return "1"
+			#zyxel_led_ctrl ConnWeak
+			echo 'weak' > $mesh5gLowState
+			zlog 5 2 'mesh 5g low band connection is weak.'
+			echo "mesh 5g low band connection is weak.." > /dev/console
+			return "1"
+		else
+			[ $(cat $mesh5gLowState) == "weak" ] && {
+				#zyxel_led_ctrl BootFinish
+				zlog 5 2 'mesh 5g low band connection restored.'
+				echo 'restored' > $mesh5gLowState
+				echo "mesh 5g low band connection restored.." > /dev/console
+				return "2"
+			}
+		fi
+    fi
+}
+
+#check Time Zone status
+[ -f /tmp/TimeZone_status ] && {
+	local Record_TimeZone=$( cat /tmp/TimeZone_status )
+	local Now_TimeZone=$( date | awk '{print $5}' )
+	
+	if [ "$Record_TimeZone" != "$Now_TimeZone" ] ;then
+		#if [ "$product_name" == "NBG6815" ] || [ "$product_name" == "NBG6816" ]; then
+		#	local chk_lan_ip_alise=$( ifconfig $brlan:0 | grep "inet addr" | awk '{print $2}' | awk -F ":" '{print $2}' )
+		#	if [ "$chk_lan_ip_alise" == "" ] ;then
+		#		ifconfig $brlan:0 223.254.253.251
+		#	fi
+		#fi
+		/etc/init.d/wifi_scheduling restart
+		/etc/init.d/wifi_scheduling5G restart
+		/etc/init.d/wireless_macfilter restart
+		/etc/init.d/wireless5G_macfilter restart
+		echo "$Now_TimeZone" > /tmp/TimeZone_status
+	fi
+
+	local brlan_proto=$(uci get network.br0.proto)
+	local check_timesetting_daemon=$(ps | grep 'watch -n 600 -t /sbin/time_daemon_AP' | grep -v 'grep')
+	if [ "$brlan_proto" == "static" ] ;then
+		if [ "$check_timesetting_daemon" == "" ] ;then
+			watch -n 600 -t /sbin/time_daemon_AP 1>/dev/null 2>&1 &
+		fi
+	else
+		local time_daemon_AP_ID=$(ps | grep 'watch -n 600 -t /sbin/time_daemon_AP' | grep -v 'grep' | awk -F " " '{print $1}')
+		if [ "$time_daemon_AP_ID" != "" ] ;then
+			kill -9 $time_daemon_AP_ID
+		fi
+	fi
+} || {
+	local TimeZone=$( date | awk '{print $5}' )
+	echo "$TimeZone" > /tmp/TimeZone_status
+}
+
+
+## LAN is IP from DHCP in AP mode
+brlan_proto=$(uci get network.br0.proto)
+if [ "$brlan_proto" == "dhcp" ] ;then
+	backhaul_ready=1
+	local chk_lan=$(ifconfig $brlan | grep "inet addr" | awk '{print $2}' | awk -F ":" '{print $2}')
+	if [ "$chk_lan" != "" ] ;then
+		local GW_ip=$(route -n | grep -w 'UG' | awk '{print $2}' | head -n 1)
+		local old_brlan=$(cat /tmp/old_brlan)
+		
+		if [ "$chk_lan" != "$old_brlan" ] ;then
+			echo "$chk_lan" > /tmp/old_brlan
+			#/bin/switch_port wan reset
+			#/bin/switch_port lan auto_ipchange
+			#/etc/init.d/wireless restart
+			/sbin/time_daemon reload 1>/dev/null 2>&1 &
+			#/etc/init.d/samba restart 1>/dev/null 2>&1 &
+		fi
+		# Comment out since we still keep it as ready led when 5G low band disconnect, and only when backhaul discoonected then LED turns red.
+		check_5G_low_conn
+		# If the backhaul connection linkrate is low, it might cause the ping latency is high.
+		# Extending the ping count from 5 to 10 to mitigate the extender disconnect from root symptoms
+		MAX_PING_COUNT=30
+		echo 'ready' > /tmp/backhaul_status
+		for i in $(seq 1 1 100);
+		do
+			ping $GW_ip -c 1 -w 1 &> /dev/null && break
+			if [ "$i" == "$MAX_PING_COUNT" ] ;then
+				/usr/sbin/zyxel_udhcpc_reload
+				echo 'noready' > /tmp/backhaul_status
+				backhaul_ready=0
+				#workaround for flash reset issue. Check WLAN1_MODE is not mesh only, copy the backup file to recover it.
+				check_mesh_mode
+				break
+			fi
+		done
+	else
+		/usr/sbin/zyxel_udhcpc_reload
+		echo 'noready' > /tmp/backhaul_status
+		backhaul_ready=0
+		#workaround for flash reset issue. Check WLAN1_MODE is not mesh only, copy the backup file to recover it.
+		check_mesh_mode
+	fi
+
+	#Check uplink mesh status, if uplink is offline, turn off AP interface
+	if [ "$(ifconfig | grep 'wlan0' | grep -v 'wlan0-msh0')" != "" ]; then
+		check_wifi_ap $backhaul_ready
+	fi
+
+	## Check number of backhaul disconnecting.
+	if [ "$backhaul_ready" == "0" ]; then
+		[ -f "$reset_ether_ports_cnt" ] || echo "1" > "$reset_ether_ports_cnt"
+		chk_reset_ether_ports_cnt=`cat $reset_ether_ports_cnt`
+		[ "$chk_reset_ether_ports_cnt" -gt "$max_reset_ether_ports" ] && return
+
+		[ -f "$chk_internet_cnt" ] || echo "0" > "$chk_internet_cnt"
+		chk_val=`cat $chk_internet_cnt`
+		chk_val=`expr $chk_val + 1`
+		if [ "$chk_val" -ge "$max_internet_disconnect_cnt" ]; then
+			zlog 2 2 "Backhaul disconnect to Root.($chk_val) Reset ether ports. Number of resetting ether ports is ($chk_reset_ether_ports_cnt)."
+			echo "0" > $chk_internet_cnt
+			chk_reset_ether_ports_cnt=`expr $chk_reset_ether_ports_cnt + 1`
+			echo "$chk_reset_ether_ports_cnt" > "$reset_ether_ports_cnt"
+
+			## Reset ether ports
+			func_from_zyxel_switch_port 0
+			sleep 3
+			func_from_zyxel_switch_port 1
+			sleep 5
+			return
+		else
+			zlog 2 2 "Backhaul disconnect to Root.($chk_val)"
+			echo "$chk_val" > "$chk_internet_cnt"
+		fi
+	else
+		echo "0" > "$chk_internet_cnt"
+		echo "1" > "$reset_ether_ports_cnt"
+	fi
+fi
+

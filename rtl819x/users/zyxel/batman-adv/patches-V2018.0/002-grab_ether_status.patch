@@ -1,0 +1,217 @@
+--- net/batman-adv/bat_v_elp.c	2018-02-27 16:49:11.000000000 +0800
++++ net/batman-adv/bat_v_elp.c	2018-03-02 14:59:09.598612061 +0800
+@@ -77,7 +77,11 @@
+ static u32 batadv_v_elp_get_throughput(struct batadv_hardif_neigh_node *neigh)
+ {
+ 	struct batadv_hard_iface *hard_iface = neigh->if_incoming;
++#if	defined(WSR30_RTL8192C)
++	struct port_status	link_settings;
++#else
+ 	struct ethtool_link_ksettings link_settings;
++#endif	//WSR30_RTL8192C
+ 	struct net_device *real_netdev;
+ 	struct station_info sinfo;
+ 	u32 throughput;
+@@ -125,16 +129,28 @@
+ 	 */
+ 	memset(&link_settings, 0, sizeof(link_settings));
+ 	rtnl_lock();
++#if	defined(WSR30_RTL8192C)
++	ret=batadv_get_port_status(hard_iface->net_dev, &link_settings);	/* 0 means successfully */
++#else
+ 	ret = __ethtool_get_link_ksettings(hard_iface->net_dev, &link_settings);
++#endif	//WSR30_RTL8192C
+ 	rtnl_unlock();
+ 	if (ret == 0) {
+ 		/* link characteristics might change over time */
++#if	defined(WSR30_RTL8192C)
++		if (link_settings.duplex == 1)
++#else
+ 		if (link_settings.base.duplex == DUPLEX_FULL)
++#endif	//WSR30_RTL8192C
+ 			hard_iface->bat_v.flags |= BATADV_FULL_DUPLEX;
+ 		else
+ 			hard_iface->bat_v.flags &= ~BATADV_FULL_DUPLEX;
+ 
++#if	defined(WSR30_RTL8192C)
++		throughput = link_settings.speed;
++#else
+ 		throughput = link_settings.base.speed;
++#endif	//WSR30_RTL8192C
+ 		if (throughput && throughput != SPEED_UNKNOWN)
+ 			return throughput * 10;
+ 	}
+@@ -153,6 +169,151 @@
+ 	return BATADV_THROUGHPUT_DEFAULT_VALUE;
+ }
+ 
++#if		defined(WSR30_RTL8192C)
++typedef int rtk_api_ret_t;
++typedef u32 rtk_port_t;
++typedef u32 rtk_data_t;
++typedef enum    rtk_port_duplex_e
++{
++	PORT_HALF_DUPLEX = 0, 
++	PORT_FULL_DUPLEX, 
++	PORT_DUPLEX_END
++} rtk_port_duplex_t;
++typedef enum	rtk_port_linkStatus_e
++{
++	PORT_LINKDOWN = 0,
++	PORT_LINKUP,
++	PORT_LINKSTATUS_END
++} rtk_port_linkStatus_t;
++extern rtk_api_ret_t    rtk_port_phyStatus_get
++(rtk_port_t port, 
++ rtk_port_linkStatus_t *pLinkStatus, 
++ rtk_data_t *pSpeed, 
++ rtk_data_t *pDuples);
++enum	PORTID {
++	PHY0 = 0,
++	PHY1 = 1, 
++	PHY2 = 2,
++	PHY3 = 3,
++	PHY4 = 4,
++	PHY5 = 5,
++	CPU =6, 
++	MULTEXT = 10,
++};
++struct wifi_mib_value {
++	u32 rssi_threshold;
++	u32 cu_threshold;
++	u32 noise_threshold;
++	u32 rssi_weight;
++	u32 cu_weight;
++	u32 noise_weight;
++};
++struct wifi_mib_value  mib_value_of_5g =
++{
++	.rssi_threshold = 15,
++	.cu_threshold   = 160,
++	.noise_threshold    = 50,
++	.rssi_weight        = 2,
++	.cu_weight      = 3,
++	.noise_weight   = 2,
++};
++struct wifi_mib_value  mib_value_of_2g =
++{
++	.rssi_threshold = 5,
++	.cu_threshold   = 100,
++	.noise_threshold    = 30,
++	.rssi_weight        = 4,
++	.cu_weight      = 12,
++	.noise_weight   = 5,
++};
++
++#define EnForceMode			(1<<25)
++#define PollLinkStatus		(1<<24)
++#define big_endian32(x)		(x)
++#define big_endian(x)		big_endian32(x)
++#ifndef REG32
++	#define REG32(reg)          (*((volatile uint32 *)(reg)))
++#endif
++#ifndef READ_MEM32
++	#define READ_MEM32(reg)     big_endian(REG32(reg))
++#endif
++#define REAL_SWCORE_BASE	0xBB800000
++#define SWCORE_BASE     REAL_SWCORE_BASE
++#define PCRAM_BASE      (SWCORE_BASE+0x4100)
++#define PSRP0           (0x028 + PCRAM_BASE)	/* Port Configuration Register of Port 0 */
++#define PCRP0			(0x004 + PCRAM_BASE)	/* Port Status Register Port 0 */
++
++#define PortStatusLinkUp	(1<<4)				/* Link UP */
++#define PortStatusDuplex    (1<<3)				/* Duplex */
++#define PortStatusLinkSpeed_MASK    (3<<0)		/* Link Speed */
++#define PortStatusLinkSpeed_OFFSET  0
++#define PortStatusLinkSpeed10M		(0<<0)      /* 10M */
++#define PortStatusLinkSpeed100M		(1<<0)      /* 100M */
++#define PortStatusLinkSpeed1000M    (2<<0)      /* 1000M */
++#define PortStatusLinkSpeedReserved (3<<0)      /* Reserved Speed */
++
++int    get_port_status
++(struct net_device *netdev, 
++ struct port_status *status)
++{
++	int port=0;
++	int retval=-1;
++	u32 regData, regData_PCR, data;
++
++	for(port=PHY0; port<CPU; port++) {
++		regData=READ_MEM32(PSRP0+((port)<<2));
++		regData_PCR=READ_MEM32(PCRP0+((port)<<2));
++		printk(KERN_INFO "[%d] ", port);
++		data=regData_PCR & EnForceMode;
++		if(data) {
++			data=regData_PCR & PollLinkStatus;
++			if(data)
++				printk(KERN_INFO "polling LinkUp\n");
++			else
++				printk(KERN_INFO "disable Auto-Negotiation\n");
++		} else {
++			printk(KERN_INFO "- Force Mode disable!!!\n");
++		}
++
++		regData=READ_MEM32(PSRP0+((port)<<2));
++		data=regData & PortStatusLinkUp;
++		/* link */
++		if(data) {
++			status->link=1;
++			retval=1;
++			printk(KERN_INFO "Link-up\n");
++		} else {
++			status->link=0;
++		}
++		/* full/half duplex */
++		data=regData & PortStatusDuplex;
++		if(data) {
++			status->duplex=1;
++			printk(KERN_INFO "Full duplex\n");
++		} else {
++			printk(KERN_INFO "Half duplex\n");
++			status->duplex=0;
++		}
++		/* link rate */
++		data=(regData & PortStatusLinkSpeed_MASK) >> PortStatusLinkSpeed_OFFSET;
++		if(data == PortStatusLinkSpeed100M) {
++			status->speed=100;
++			printk(KERN_INFO "100M\n");
++		} else if(data == PortStatusLinkSpeed1000M) {
++			status->speed=1000;
++			printk(KERN_INFO "1000M\n");
++		} else if(data == PortStatusLinkSpeed10M) {
++			status->speed=10;
++			printk(KERN_INFO "10M\n");
++		} else {
++			status->speed=500;
++			printk(KERN_ERR "500M\n");
++		}
++	}
++	return	retval;
++}
++#endif	//WSR30_RTL8192C
++
+ /**
+  * batadv_v_elp_throughput_metric_update() - worker updating the throughput
+  *  metric of a single hop neighbour
+
+--- net/batman-adv/bat_v_elp.h	2018-02-27 16:49:11.000000000 +0800
++++ net/batman-adv/bat_v_elp.h	2018-03-02 15:02:48.611986323 +0800
+@@ -21,6 +21,18 @@
+ 
+ #include "main.h"
+ 
++#ifndef	WSR30_RTL8192C
++#define	WSR30_RTL8192C
++#endif
++#if		defined(WSR30_RTL8192C)
++struct port_status {
++	int	link;		//0/1
++	int	duplex;		//0/1
++	int	speed;		//10/100/1000/500
++};
++extern int  batadv_get_port_status(struct net_device *, struct port_status *);
++#endif
++
+ struct sk_buff;
+ struct work_struct;
+ 

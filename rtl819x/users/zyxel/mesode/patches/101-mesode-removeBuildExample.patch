@@ -1,0 +1,61 @@
+--- a/Makefile.in	2017-08-17 10:04:32.527472000 +0800
++++ b/Makefile.in	2017-08-17 10:07:17.386978492 +0800
+@@ -1784,7 +1784,7 @@
+ 	$(MAKE) $(AM_MAKEFLAGS) $(check_PROGRAMS)
+ 	$(MAKE) $(AM_MAKEFLAGS) check-TESTS
+ check: check-am
+-all-am: Makefile $(LTLIBRARIES) $(PROGRAMS) $(DATA) $(HEADERS)
++all-am: Makefile $(LTLIBRARIES) $(DATA) $(HEADERS)
+ installdirs:
+ 	for dir in "$(DESTDIR)$(libdir)" "$(DESTDIR)$(pkgconfigdir)" "$(DESTDIR)$(includedir)"; do \
+ 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

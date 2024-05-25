@@ -1,0 +1,67 @@
+#!/bin/sh
+
+help()
+{
+    echo "Zyxel zapi_service control script"
+    echo "Usage:    zapi_service <Behavior>"
+    echo "Behavior:     boot|start|stop|restart"
+}
+
+boot()
+{
+    start
+}
+
+start()
+{
+	#Normal start zapi-service daemon
+    #/usr/sbin/reload-zapi-service.sh
+    pid=$(ps | grep '[z]api-service' | awk '{print $1}')
+    if [ -z "$pid" ]; then
+		/bin/zapi-service &
+		watch -tn 15 /usr/sbin/zapi_service_monitor 1>/dev/null 2>&1 &
+		zapi_pid=$!
+		echo $zapi_pid > /var/run/zapi_service_monitor.pid
+
+	else
+		echo "zapi-service is running already. Do nothing...."
+    fi
+}
+
+stop()
+{
+    pid=$(ps | grep '[z]api-service' | awk '{print $1}')
+    if [ "" != "$pid" ]; then
+		kill -9 $pid
+		if [ -f "/var/run/zapi_service_monitor.pid" ]; then
+			kill "$(cat /var/run/zapi_service_monitor.pid)" &&
+			rm /var/run/zapi_service_monitor.pid
+		fi
+	fi
+}
+
+restart()
+{
+	stop
+	start
+}
+
+case $1 in
+    boot)
+		boot
+	;;
+	start)
+		start
+	;;
+	stop)
+		stop
+	;;
+	restart)
+		restart
+	;;
+	*)
+		help
+		exit 4
+	;;
+esac
+exit 0

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# Marking it is for supporting batman feature in WSR30.
+#ifconfig br0 0.0.0.0
+
+[ -f /var/IP_trigger_port ] && rm /var/IP_trigger_port
+
+[ -f /var/br0_ip ] && {
+        rm /var/br0_ip
+        rm /var/curr_br0_info
+}

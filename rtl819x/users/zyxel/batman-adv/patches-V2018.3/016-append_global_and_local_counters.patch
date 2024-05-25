@@ -1,0 +1,170 @@
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 15:25:43.082475157 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 15:16:13.922476359 +0800
+@@ -46,7 +46,7 @@
+ 
+ static DEFINE_MUTEX(bats_lock);
+ static DEFINE_MUTEX(local_lock);
+-static struct hlist_head	bats[FAST_BAT_LIST_LEN];	//record all bats
++static struct hlist_head	bats[FAST_BAT_LIST_LEN];	//record all global bats
+ static u8	forbid_mac_addr[][ETH_ALEN+1] = {
+ 	{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 6},	//"broadcast"
+ 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 6},	//"zero addr"
+@@ -79,6 +79,7 @@
+ extern struct list_head fastbat_local_head;
+ extern struct workqueue_struct *batadv_event_workqueue;
+ extern struct delayed_work fastbat_work;
++extern FASTMESH __fastmesh_priv;
+ 
+ /* input: src/dst mac
+  *
+@@ -402,11 +403,17 @@
+ 	}
+ 
+ 	/* append */
++	if(atomic_read(&__fastmesh_priv.local_count) >= FAST_BAT_LOCAL_LEN_MAX) {
++		retval=-ENOBUFS;
++		FASTBAT_DBG_RAW_MSG("[F@STBAT] Cache size is full!!!\n");
++		goto	RETN;
++	}
+ 	local=kzalloc(sizeof(FAST_LOCAL), GFP_KERNEL);
+ 	if(local == NULL) {
+ 		retval=-ENOMEM;
+ 		goto	RETN;
+ 	}
++	atomic_inc(&__fastmesh_priv.local_count);
+ 	memcpy(local->dst, ethhdr->h_dest, ETH_ALEN);
+ 	local->last_seen=jiffies;
+ 	local->output_dev=out;
+@@ -517,6 +524,7 @@
+ 		fastbat_hash_calculate(real_ethhdr->h_source, real_ethhdr->h_dest), hdr_len);
+ #endif
+ 
++	/* check */
+ 	//bat=fastbat_skb_peel_and_search(skb);
+ 	//fastbat_show_raw_data((u8 *)ethhdr, 48);
+ 	bat=fastbat_list_search(real_ethhdr->h_source, real_ethhdr->h_dest);
+@@ -526,12 +534,18 @@
+ 		retval=-EEXIST;
+ 		goto	RETN;
+ 	}
++	if(atomic_read(&__fastmesh_priv.global_count) >= FAST_BAT_GLOBAL_LEN_MAX) {
++		retval=-ENOBUFS;
++		FASTBAT_DBG_RAW_MSG("[F@STBAT] Cache size is full!!!\n");
++		goto	RETN;
++	}
+ 	bat=kzalloc(sizeof(FAST_BAT), GFP_KERNEL);
+ 	if(bat == NULL) {
+ 		FASTBAT_BUG_ON(1);
+ 		retval=-ENOMEM;
+ 		goto	RETN;
+ 	}
++	atomic_inc(&__fastmesh_priv.global_count);
+ 
+ 	/* append into list */
+ 	ether_addr_copy(bat->src1, ethhdr->h_source);
+@@ -645,6 +659,7 @@
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty local bat! eliminates!\n");
+ 	mutex_lock(&local_lock);
+ 	list_del(local);
++	atomic_dec(&__fastmesh_priv.local_count);
+ 	mutex_unlock(&local_lock);
+ 	kfree(local);
+ }
+@@ -655,6 +670,7 @@
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty bat! eliminates!\n");
+ 	mutex_lock(&bats_lock);
+ 	__hlist_del(&bat->list);
++	atomic_dec(&__fastmesh_priv.global_count);
+ 	mutex_unlock(&bats_lock);
+ 	kfree(bat);
+ }
+@@ -1393,7 +1409,6 @@
+ 		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
+ }
+ 
+-
+ /* @addr: the mac address of the client
+  */
+ void	fastbat_check_local_client_and_setup_dirty
+@@ -1541,6 +1556,7 @@
+ 				}
+ 				mutex_lock(&bats_lock);
+ 				hlist_del(&bat->list);
++				atomic_dec(&__fastmesh_priv.global_count);
+ 				mutex_unlock(&bats_lock);
+ 				kfree(bat);
+ 				break;
+@@ -1593,6 +1609,7 @@
+ 				FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty local bat! eliminates this bat!\n");
+ 				mutex_lock(&local_lock);
+ 				list_del(local_to_be_del);
++				atomic_dec(&__fastmesh_priv.local_count);
+ 				mutex_unlock(&local_lock);
+ 				kfree(local_to_be_del);
+ 			}
+@@ -1616,7 +1633,10 @@
+ 		return	0;
+ 	}
+ 
+-	/* bats */
++	/* total count */
++	seq_printf(seq, "[global size]: %d\n", atomic_read(&__fastmesh_priv.global_count));
++	seq_printf(seq, "[local size]: %d\n", atomic_read(&__fastmesh_priv.local_count));
++	/* global bats */
+ 	seq_puts(seq, "(No.)   [idx] <src>             <dst>             <realsrc>         <realdst>         <orig>            <dirty> <batman> <vlan> <batman-type> <dev>\n");
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+ 		if(!hlist_empty(&bats[idx])) {
+--- batman-adv-2018.3/net/batman-adv/fast_batman.h	2018-11-09 15:25:43.078475157 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.h	2018-11-09 15:20:08.506475863 +0800
+@@ -6,6 +6,7 @@
+ #include <linux/list.h>
+ #include <linux/ratelimit.h>
+ #include <linux/if_vlan.h>
++#include <linux/types.h>
+ //#include "packet.h"
+ #include <linux/etherdevice.h>
+ #include "soft-interface.h"
+@@ -17,7 +18,21 @@
+ //#define ETH_ALEN			6
+ #define FASTBAT_DIRTY_PURGE	3000		/* msec */
+ #define ETH_VLAN_HLEN		18
+-#define FAST_BAT_LIST_LEN	16
++#define FAST_BAT_LIST_LEN	32
++#define FAST_BAT_GLOBAL_LEN_MAX	50000
++#define FAST_BAT_LOCAL_LEN_MAX	512
++
++typedef struct fastmesh_priv {
++	struct batadv_priv	*batman_priv;	/* so far, just support one batman iface */
++	atomic_t	global_count;			/* total global bats */
++	atomic_t	local_count;			/* total local bats */
++	struct hlist_head	bats[FAST_BAT_LIST_LEN];
++	struct list_head	fastbat_local_head;
++	struct mutex		bats_lock;
++	struct mutex		local_lock;
++	struct workqueue_struct	*wq;
++	struct delayed_work	*work;
++}FASTMESH;
+ 
+ typedef struct	fast_bat {
+ 	struct hlist_node	list;
+--- batman-adv-2018.3/net/batman-adv/main.c	2018-11-09 15:25:43.074475157 +0800
++++ batman-adv-2018.3/net/batman-adv/main.c	2018-11-09 15:21:25.850475700 +0800
+@@ -152,6 +152,7 @@
+ };
+ LIST_HEAD(fastbat_local_head);
+ struct delayed_work	fastbat_work;
++FASTMESH	__fastmesh_priv;
+ extern struct br_fastbat_ops _br_fastbat_ops;
+ extern int fastbat_filter_input_packet(struct sk_buff *, u16 *, u16 *);
+ extern int fastbat_dispatch(struct sk_buff *, FAST_BAT *, u16, u16);
+@@ -215,6 +216,10 @@
+ 		for(; idx<FAST_BAT_LIST_LEN; idx++)
+ 			INIT_HLIST_HEAD(&bats[idx]);*/
+ 
++		/* init priv FASTMESH data */
++		atomic_set(&__fastmesh_priv.global_count, 0);
++		atomic_set(&__fastmesh_priv.local_count, 0);
++
+ 		INIT_DELAYED_WORK(&fastbat_work, fastbat_purge_dirty_entry);
+ 
+ 		if((&_br_fastbat_ops != NULL)/* && (&_br_fastbat_ops.fastbat_dispatch != NULL)*/) {

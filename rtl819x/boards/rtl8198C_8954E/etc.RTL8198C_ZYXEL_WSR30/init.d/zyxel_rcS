@@ -1,0 +1,28 @@
+#!/bin/sh
+/etc/init.d/zyxel_init boot
+/usr/sbin/zyxel_upgrade_defcfg
+#/etc/init.d/zyxel_bridgeSetup boot	#Move to zyxel_init run , change name zyxel_batmanSetup.
+/usr/bin/ledCtrld &
+/sbin/zyxel_btn_monitor &
+/etc/init.d/wireless start booting
+#/sbin/wifi up
+/sbin/zyxel_gen_cert_info
+/usr/sbin/zyxel_ble_init boot
+/usr/sbin/zyFwupgrade &
+#/usr/bin/ledCtrld &
+/etc/init.d/myZyXELcloud-Agent start
+/etc/init.d/network start 
+/etc/init.d/backhaul_monitor boot      #Init backhaul check
+/etc/init.d/cron start
+/etc/init.d/atd start
+/sbin/zyxel_set_opmode
+/etc/init.d/telnet start
+#/etc/init.d/netprobe start
+/usr/sbin/zy_system_monitor
+/etc/init.d/WiFiAssocMonitor start
+/etc/init.d/sendfeedback boot
+zyxel_led_ctrl BootFinish
+# Send boot finished signal to backhaul_monitor
+kill -52 `cat /tmp/backhaul_monitor.pid`
+touch /tmp/bootFinished && sync
+echo "Boot Finish !!!" > /dev/console

@@ -1,0 +1,81 @@
+--- Makefile	2012-03-20 08:27:12.000000000 +0800
++++ Makefile	2017-11-03 15:50:52.623094347 +0800
+@@ -27,13 +27,14 @@
+ #options for ipx
+ ADDLIB+=ipx_ntop.o ipx_pton.o
+ 
+-CC = gcc
++#CC = gcc
+ HOSTCC = gcc
+ CCOPTS = -D_GNU_SOURCE -O2 -Wstrict-prototypes -Wall
+ CFLAGS = $(CCOPTS) -I../include $(DEFINES)
+ YACCFLAGS = -d -t -v
+ 
+-SUBDIRS=lib ip tc misc netem genl
++#SUBDIRS=lib ip tc misc netem genl
++SUBDIRS=lib ip misc netem genl
+ 
+ LIBNETLINK=../lib/libnetlink.a ../lib/libutil.a
+ LDLIBS += $(LIBNETLINK)
+@@ -45,6 +46,7 @@
+
+ Config:
+	sh configure $(KERNEL_INCLUDE)
++
+
+ install: all
+	install -m 0755 -d $(DESTDIR)$(SBINDIR)
+@@ -83,6 +84,9 @@
+ 	$(MAKE) $(MFLAGS) clean
+ 	rm -f Config cscope.*
+ 
++romfs:
++	make romfs -C ip
++
+ distclean: clobber
+ 
+ cscope:
+--- ip/Makefile	2012-03-20 08:27:12.000000000 +0800
++++ ip/Makefile	2017-11-03 14:38:30.115149248 +0800
+@@ -17,7 +17,8 @@
+ SCRIPTS=ifcfg rtpr routel routef
+ TARGETS=ip rtmon
+ 
+-all: $(TARGETS) $(SCRIPTS)
++#all: $(TARGETS) $(SCRIPTS)
++all: ip
+ 
+ ip: $(IPOBJ) $(LIBNETLINK)
+ 
+@@ -31,6 +32,9 @@
+ clean:
+ 	rm -f $(ALLOBJ) $(TARGETS)
+ 
++romfs: FORCE
++	$(ROMFSINST) ip /bin/ip
++
+ SHARED_LIBS ?= y
+ ifeq ($(SHARED_LIBS),y)
+ 
+@@ -48,3 +52,9 @@
+ 	done > $@
+ 
+ endif
++
++PHONY += FORCE
++FORCE:
++
++.PHONY: $(PHONY)
++
+--- misc/Makefile	2017-11-06 14:17:41.991888018 +0800
++++ misc/Makefile	2017-10-31 14:48:06.138418976 +0800
+@@ -1,7 +1,8 @@
+ SSOBJ=ss.o ssfilter.o
+ LNSTATOBJ=lnstat.o lnstat_util.o
+ 
+-TARGETS=ss nstat ifstat rtacct arpd lnstat
++TARGETS=ss nstat ifstat rtacct lnstat
++#TARGETS=ss nstat ifstat rtacct arpd lnstat
+ 
+ include ../Config
+ 

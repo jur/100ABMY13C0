@@ -1,0 +1,27 @@
+config interface 'global'
+        option enable 1
+ 
+config interface 'firmware'
+        option enable 1
+ 
+config interface 'speedtest'
+        option enable 0
+ 
+config interface 'newDevConn'
+        option enable 1
+
+config ID '5GmainA'
+        option iface 'wlan0'
+        option enable '1'
+ 
+config ID '5GguestA1'
+        option iface 'wlan0-va0'
+        option enable '0'
+
+config ID '24Gmain'
+        option iface 'wlan2'
+        option enable '1'
+
+config ID '24Gguest'
+        option iface 'wlan2-va0'
+        option enable '0'

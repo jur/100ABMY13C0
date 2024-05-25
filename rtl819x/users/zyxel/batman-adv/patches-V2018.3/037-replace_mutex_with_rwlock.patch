@@ -1,0 +1,356 @@
+diff -uNr batman-adv-2018.3/net/batman-adv/fast_batman.c batman-adv-2018.3/net/batman-adv/fast_batman.c
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-09-18 11:05:17.973851330 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-09-26 10:26:23.499372646 +0800
+@@ -48,8 +48,8 @@
+ 		BUG_ON(__VA_ARGS__);					\
+ } while(0)
+ 
+-static DEFINE_MUTEX(bats_lock);
+-static DEFINE_MUTEX(local_lock);
++DEFINE_RWLOCK(bats_lock);
++DEFINE_RWLOCK(local_lock);
+ static struct hlist_head	bats[FAST_BAT_LIST_LEN];	//record all global bats
+ static u8	forbid_mac_addr[][ETH_ALEN+1] = {
+ 	{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 6},	//"broadcast"
+@@ -144,9 +144,14 @@
+ 		return	-EINVAL;
+ 
+ 	INIT_HLIST_NODE(&bat->list);
+-	mutex_lock(&bats_lock);
+-	hlist_add_head(&bat->list, &bats[idx]);
+-	mutex_unlock(&bats_lock);
++	if(write_trylock(&bats_lock)) {
++		hlist_add_head(&bat->list, &bats[idx]);
++		write_unlock(&bats_lock);
++		atomic_inc(&__fastmesh_priv.global_count);
++	} else {
++		xxxFASTBAT_DBG_MSG(" catn't take global wlock!\n");
++		return  -EINVAL;
++	}
+ 	return	0;
+ }
+ 
+@@ -503,7 +508,13 @@
+ 		local->vlan=vlan;
+ #endif
+ 	fastbat_local_add_check_global_and_setup_dirty(local->dst);
+-	list_add(local, &fastbat_local_head);
++	if(write_trylock(&local_lock)) {
++		list_add(local, &fastbat_local_head);
++		write_unlock(&local_lock);
++	} else {
++		FASTBAT_DBG_MSG(" catn't take local wlock!\n");
++		retval=-EINVAL;
++	}
+ 
+ RETN:
+ 	return		retval;
+@@ -623,7 +634,7 @@
+ 		retval=-ENOMEM;
+ 		goto	RETN;
+ 	}
+-	atomic_inc(&__fastmesh_priv.global_count);
++	//atomic_inc(&__fastmesh_priv.global_count);
+ 
+ 	/* append into global list */
+ 	ether_addr_copy(bat->src1, ethhdr->h_source);
+@@ -761,22 +772,27 @@
+ (FAST_LOCAL *local)
+ {
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty local bat! eliminates!\n");
+-	mutex_lock(&local_lock);
+-	list_del(local);
+-	atomic_dec(&__fastmesh_priv.local_count);
+-	mutex_unlock(&local_lock);
+-	kfree(local);
++	if(write_trylock(&local_lock)) {
++		list_del(local);
++		write_unlock(&local_lock);
++		atomic_dec(&__fastmesh_priv.local_count);
++		kfree(local);
++	} else {
++		xxxFASTBAT_DBG_MSG(" catn't take local wlock!\n");
++	}
+ }
+ 
+ static void		fastbat_del_list_entry
+ (FAST_BAT *bat)
+ {
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty bat! eliminates!\n");
+-	mutex_lock(&bats_lock);
+-	__hlist_del(&bat->list);
+-	atomic_dec(&__fastmesh_priv.global_count);
+-	mutex_unlock(&bats_lock);
+-	kfree(bat);
++	if(write_trylock(&bats_lock)) {
++		__hlist_del(&bat->list);
++		write_unlock(&bats_lock);
++		atomic_dec(&__fastmesh_priv.global_count);
++		kfree(bat);
++	} else
++		xxxFASTBAT_DBG_MSG(" catn't take global wlock!\n");
+ }
+ 
+ /* return NULL if non-exist
+@@ -786,9 +802,11 @@
+ (u8 *addr)
+ {
+ 	FAST_LOCAL	*local;
++	read_lock(&local_lock);
+ 	list_for_each_entry(local, &fastbat_local_head, list) {
+ 		if(memcmp(local->dst, addr, ETH_ALEN) == 0) {
+ 			if(!local->dirty) {
++				read_unlock(&local_lock);
+ 				return	local;
+ 			} else {
+ 				//fastbat_del_local_entry(local);
+@@ -797,6 +815,7 @@
+ 			}
+ 		}
+ 	}
++	read_unlock(&local_lock);
+ 	return	NULL;
+ }
+ EXPORT_SYMBOL(fastbat_local_search);
+@@ -819,12 +838,15 @@
+ 		dst[0], dst[1], dst[2], dst[3], dst[4], dst[5]);
+ 	if(idx == 0xfffffffe)
+ 		goto	RETN;
++
++	read_lock(&bats_lock);
+ 	hlist_for_each_entry(bat, &bats[idx], list) {
+ 		xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] ENTRY SRC:%x:%x:%x:%x:%x:%x DST:%x:%x:%x:%x:%x:%x\n", 
+ 			bat->src[0], bat->src[1], bat->src[2], bat->src[3], bat->src[4], bat->src[5], 
+ 			bat->dst[0], bat->dst[1], bat->dst[2], bat->dst[3], bat->dst[4], bat->dst[5]);
+ 		/* src and dst addr are both the same*/
+ 		if((memcmp(bat->src, src, ETH_ALEN)==0) && (memcmp(bat->dst, dst, ETH_ALEN)==0)){
++			read_unlock(&bats_lock);
+ 			xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] Catch bat!!!\n");
+ #if	defined(BYPASS_GUEST_LAN)
+ 			if(bat->vlan == 2) {
+@@ -840,6 +862,7 @@
+ 			}
+ 		}
+ 	}
++	read_unlock(&bats_lock);
+ RETN:
+ 	return	NULL;
+ }
+@@ -1628,6 +1651,7 @@
+ 	/* global bats */
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+ 		//if(!hlist_empty(&bats[idx])) {
++			read_lock(&bats_lock);
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+ 				if(bat->dirty == 1)
+ 					continue;
+@@ -1646,6 +1670,7 @@
+ 					}
+ 				}
+ 			}
++			read_unlock(&bats_lock);
+ 		//}
+ 	}
+ 	if(dirty)
+@@ -1661,6 +1686,7 @@
+ 	int			dirty=0;
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] setup dirty (c)%pM\n", addr);
+ 	/* local bats */
++	read_lock(&local_lock);
+ 	list_for_each_entry(local, &fastbat_local_head, list) {
+ 		if(!memcmp(local->dst, addr, ETH_ALEN)) {
+ 			FASTBAT_DBG_RAW_MSG("[F@STBAT] find out local::(addr)%pM (dev)%s\n", 
+@@ -1669,6 +1695,7 @@
+ 			dirty=1;
+ 		}
+ 	}
++	read_unlock(&local_lock);
+ 	if(dirty)
+ 		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
+ }
+@@ -1682,6 +1709,7 @@
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] setup dirty (o)%pM\n", addr);
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		read_lock(&bats_lock);
+ 		hlist_for_each_entry(bat, &bats[idx], list) {
+ 			if(bat->dirty)
+ 				continue;
+@@ -1696,6 +1724,7 @@
+ 					bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
+ 			}
+ 		}
++		read_unlock(&bats_lock);
+ 	}
+ 	if(dirty)
+ 		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));	
+@@ -1710,6 +1739,7 @@
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] setup dirty from disconnect (o)%pM\n", addr);
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		read_lock(&bats_lock);
+ 		hlist_for_each_entry(bat, &bats[idx], list) {
+ 			if(bat->dirty)
+ 				continue;
+@@ -1725,6 +1755,7 @@
+ 					bat->orig, bat->src1, bat->dst1, bat->src, bat->dst);
+ 			}
+ 		}
++		read_unlock(&bats_lock);
+ 	}
+ 	if(dirty)
+ 		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
+@@ -1742,6 +1773,7 @@
+ 		orig_node->orig, neigh_node->addr);
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+ 		//if(!hlist_empty(&bats[idx])) {
++			read_lock(&bats_lock);
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+ 				if(bat->dirty == 1)
+ 					continue;
+@@ -1757,6 +1789,7 @@
+ 					//fastbat_del_list_entry(bat);
+ 				}
+ 			}
++			read_unlock(&bats_lock);
+ 		//}
+ 	}
+ 	if(dirty)
+@@ -1825,20 +1858,26 @@
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] start to purge bats ...\n");
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		read_lock(&bats_lock);
+ 		hlist_for_each_entry(bat, &bats[idx], list) {
+ 			if(bat->dirty) {
++				read_unlock(&bats_lock);
+ 				//fastbat_del_list_entry(bat);
+-				FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty bat! eliminates this bat!\n");
++				FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty bat! eliminates this bat (idx=%d)!\n", idx);
+ #if	1
+-				if(bat->list.next != NULL) {
++				if(bat->list.next != NULL || idx < (FAST_BAT_LIST_LEN-1)) {
+ 					queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
+ 				}
+-				mutex_lock(&bats_lock);
+-				hlist_del(&bat->list);
+-				atomic_dec(&__fastmesh_priv.global_count);
+-				mutex_unlock(&bats_lock);
+-				kfree(bat);
+-				break;
++				if(write_trylock(&bats_lock)) {
++					hlist_del(&bat->list);
++					write_unlock(&bats_lock);
++					atomic_dec(&__fastmesh_priv.global_count);
++					kfree(bat);
++					goto	LOCAL;
++				} else {
++					xxxFASTBAT_DBG_MSG(" catn't take global wlock!\n");
++					goto	LOCAL;
++				}
+ #else	//weird, sometimes it would panic
+ 				if(bat->list.next == NULL) {
+ 					FASTBAT_DBG_RAW_MSG("[F@STBAT] null\n");
+@@ -1876,23 +1915,37 @@
+ #endif
+ 			}
+ 		}
++		read_unlock(&bats_lock);
+ 	}
+ 
++LOCAL:
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] start to purge local ...\n");
+ 	if(!list_empty(&fastbat_local_head)) {
++		read_lock(&local_lock);
+ 		list_for_each_entry(local, &fastbat_local_head, list) {
+ 			if(local->dirty) {
++				read_unlock(&local_lock);
+ 				//fastbat_del_local_entry(local);
+ 				local_to_be_del=local;
+ 				local=local->list.prev;
+ 				FASTBAT_DBG_RAW_MSG("[F@STBAT] dirty local bat! eliminates this bat!\n");
+-				mutex_lock(&local_lock);
+-				list_del(local_to_be_del);
+-				atomic_dec(&__fastmesh_priv.local_count);
+-				mutex_unlock(&local_lock);
+-				kfree(local_to_be_del);
++				if(write_trylock(&local_lock)) {
++					//if(local->list.next) {
++					//	queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++					//}
++					list_del(local_to_be_del);
++					write_unlock(&local_lock);
++					atomic_dec(&__fastmesh_priv.local_count);
++					kfree(local_to_be_del);
++					read_lock(&local_lock);
++				} else {
++					FASTBAT_DBG_MSG(" catn't take local wlock!\n");
++					queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++					return;
++				}
+ 			}
+ 		}
++		read_unlock(&local_lock);
+ 	} else {
+ 		FASTBAT_DBG_RAW_MSG("[F@STBAT] local list is empty...\n");
+ 	}
+@@ -1953,13 +2006,16 @@
+ 	global->iif=iif;
+ 
+ 	/* delete local entry */
++	read_lock(&local_lock);
+ 	list_for_each_entry(local, &fastbat_local_head, list) {
+ 		if(!memcmp(global->src, local->dst, ETH_ALEN)) {
+ 			FASTBAT_DBG_RAW_MSG("[F@STBAT] arrival dev idx changed (%pM)\n", global->src);
+ 			fastbat_del_local_entry(local);
++			read_unlock(&local_lock);
+ 			return;
+ 		}
+ 	}
++	read_unlock(&local_lock);
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] No local!\n");
+ }
+ 
+diff -uNr batman-adv-2018.3/net/batman-adv/fast_batman.h batman-adv-2018.3/net/batman-adv/fast_batman.h
+--- batman-adv-2018.3/net/batman-adv/fast_batman.h	2019-09-18 11:05:17.989851330 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.h	2019-09-26 10:26:36.383372523 +0800
+@@ -14,6 +14,7 @@
+ #include "soft-interface.h"
+ #include "types.h"
+ #include "hash.h"
++#include <linux/rwlock_types.h>
+ 
+ #define FASTBAT_DBG			0			/* debug mode: [0..2] */
+ #define PUSH_THE_PACE		1			/* speed up */
+@@ -33,8 +34,8 @@
+ 	atomic_t	local_count;			/* total local bats */
+ 	struct hlist_head	bats[FAST_BAT_LIST_LEN];
+ 	struct list_head	fastbat_local_head;
+-	struct mutex		bats_lock;
+-	struct mutex		local_lock;
++	rwlock_t	*bats_lock;
++	rwlock_t	*local_lock;
+ 	struct workqueue_struct	*wq;
+ 	struct delayed_work	*work;
+ }FASTMESH;
+diff -uNr batman-adv-2018.3/net/batman-adv/main.c batman-adv-2018.3/net/batman-adv/main.c
+--- batman-adv-2018.3/net/batman-adv/main.c	2019-09-18 11:05:18.001851330 +0800
++++ batman-adv-2018.3/net/batman-adv/main.c	2019-09-25 14:57:30.856041483 +0800
+@@ -166,6 +166,8 @@
+ extern void fastbat_purge_dirty_entry(void *);
+ extern void fastbat_reset_header(void *);
+ extern void fastbat_update_arrival_dev(FAST_BAT *, int);
++extern rwlock_t local_lock;
++extern rwlock_t bats_lock;
+ #endif
+ 
+ /**
+@@ -221,6 +223,8 @@
+ 			INIT_HLIST_HEAD(&bats[idx]);*/
+ 
+ 		/* init priv FASTMESH data */
++		__fastmesh_priv.bats_lock=&bats_lock;
++		__fastmesh_priv.local_lock=&local_lock;
+ 		atomic_set(&__fastmesh_priv.global_count, 0);
+ 		atomic_set(&__fastmesh_priv.local_count, 0);
+ 

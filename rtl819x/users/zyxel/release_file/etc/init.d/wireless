@@ -1,0 +1,375 @@
+#!/bin/sh
+
+GETMIB="flash get"
+system_install_mode=$(uci get system.main.install_mode)
+role=$(uci get system.main.operation_role)
+COUNTRYCODE=$(atsh|grep "Default Country Code"| grep -v grep | awk -F': ' '{print $2}')
+
+ApprovalFile="/tmp/ApplicationData/Approvelist"
+
+isRootOnly() {
+    rootOnly=1
+    if [ -f $ApprovalFile ]; then
+		while read line; do
+			if [ "$(echo $line | awk -F ' ' '{print$2}')" == "1" ]; then
+				echo "More than 1 device in the system" > /dev/console
+				rootOnly=0
+				break
+			fi
+		done < $ApprovalFile
+		if [ $rootOnly == "1" ]; then
+			echo "Root Only" > /dev/console
+		fi
+	else
+		echo "Root Only" > /dev/console
+		rootOnly=1
+	fi
+
+    echo $rootOnly
+}
+
+check_config(){
+	if [ "$system_install_mode" != "1" ]; then
+		#default channel check
+		eval `$GETMIB WLAN1_CHANNEL`
+
+		if [ "$COUNTRYCODE" == "FF" ]; then
+			#country code FF
+			if [ "$WLAN1_CHANNEL" != "157" ]; then
+				flash set WLAN1_CHANNEL 157
+			fi
+		else
+			#country code EU
+			if [ "$WLAN1_CHANNEL" != "100" ]; then
+				flash set WLAN1_CHANNEL 100
+			fi
+		fi
+	fi
+
+	eval `$GETMIB WLAN1_MESH_ID`
+	if [ "$WLAN1_MESH_ID" != "mesh5" ] && [ "$COUNTRYCODE" == "E1" ]; then
+		eval `$GETMIB WLAN0_MODE`
+
+		if [ "$WLAN0_MODE" == 0 ]; then
+			eval `$GETMIB WLAN1_MESH_WPA_PSK`
+
+			flash set WLAN0_MESH_ID $WLAN1_MESH_ID"-L"
+			flash set WLAN0_MESH_WPA_PSK $WLAN1_MESH_WPA_PSK
+
+			flash set WLAN0_MODE 4
+			flash set WLAN0_MESH_ENABLE 1
+			flash set WLAN0_MESH_ENCRYPT 4
+			flash set WLAN0_MESH_WPA_AUTH 2
+			flash set WLAN0_MESH_WPA2_CIPHER_SUITE 2
+		fi
+	fi
+
+    #Since wlan2 is no longer used for mesh interface, change its mode from 4 (AP+mesh) to 0 (AP).
+    eval `$GETMIB WLAN2_MODE`
+    if [ "$WLAN2_MODE" == 4 ]; then
+		flash set WLAN2_MODE 0
+    fi
+
+	#TX BEAMFORMING disable check
+	eval `$GETMIB DEF_WLAN0_TX_BEAMFORMING`
+	eval `$GETMIB WLAN0_TX_BEAMFORMING`
+	if [ "$DEF_WLAN0_TX_BEAMFORMING" == "0" ]; then
+		if [ "$WLAN0_TX_BEAMFORMING" != "0" ]; then
+			flash set WLAN0_TX_BEAMFORMING 0
+			flash set WLAN0_VAP0_TX_BEAMFORMING 0
+			flash set WLAN1_TX_BEAMFORMING 0
+			flash set WLAN1_VAP0_TX_BEAMFORMING 0
+			flash set WLAN2_TX_BEAMFORMING 0
+			flash set WLAN2_VAP0_TX_BEAMFORMING 0
+		fi
+	fi
+
+	if [ "$role" == "controller" ]; then
+		#check 24G always run auto channel
+		eval `$GETMIB WLAN2_CHANNEL`
+		if [ "$WLAN2_CHANNEL" != "0" ] ; then
+			flash set WLAN2_CHANNEL 0
+		fi
+	fi
+
+	#check 24G channel bonding : 20MHz
+	eval `$GETMIB WLAN2_CHANNEL_BONDING`
+	if [ "$WLAN2_CHANNEL_BONDING" != "0" ]; then
+		flash set WLAN2_CHANNEL_BONDING 0
+	fi
+
+    #eval `$GETMIB WLAN1_ENCRYPT`
+    #if [ "$WLAN1_ENCRYPT" == "0" ]; then
+    #    flash set WLAN1_ENCRYPT 4
+    #fi
+
+	if [ "$WLAN1_MESH_ID" != "mesh5" ]; then
+		eval `$GETMIB WLAN1_MODE`
+
+		eval `$GETMIB WLAN0_SSID`
+		eval `$GETMIB WLAN0_WPA_PSK`
+		eval `$GETMIB WLAN0_VAP0_SSID`
+		eval `$GETMIB WLAN0_VAP0_WPA_PSK`
+
+		if [ "$WLAN1_MODE" == "5" ]; then
+			flash set WLAN1_MODE 4
+			flash set WLAN1_ENCRYPT 4
+
+			flash set WLAN1_SSID $WLAN0_SSID	
+			flash set WLAN1_WPA_PSK $WLAN0_WPA_PSK
+
+			flash set WLAN1_VAP0_WLAN_DISABLED 0
+			flash set WLAN1_VAP0_WPA_AUTH 2
+			flash set WLAN1_VAP0_ENCRYPT 4
+			flash set WLAN1_VAP0_WPA_CIPHER_SUITE 1
+			flash set WLAN1_VAP0_WPA2_CIPHER_SUITE 2
+			flash set WLAN1_VAP0_SSID $WLAN0_VAP0_SSID
+			flash set WLAN1_VAP0_WPA_PSK $WLAN0_VAP0_WPA_PSK
+
+			flash set WLAN1_DOT11K_ENABLE 1
+			flash set WLAN1_DOT11V_ENABLE 1
+			flash set WLAN1_VAP0_DOT11K_ENABLE 1
+			flash set WLAN1_VAP0_DOT11V_ENABLE 1
+		fi
+	fi
+
+	#check RTS/CTS
+	eval `$GETMIB WLAN0_RTS_THRESHOLD`
+	eval `$GETMIB WLAN2_RTS_THRESHOLD`
+	if [ "$WLAN0_RTS_THRESHOLD" == "256" ] && [ "$WLAN2_RTS_THRESHOLD" == "256" ]; then
+		flash set WLAN0_RTS_THRESHOLD 2347
+		flash set WLAN2_RTS_THRESHOLD 2347
+	fi
+
+	eval `$GETMIB WLAN0_VAP0_RTS_THRESHOLD`
+	eval `$GETMIB WLAN2_VAP0_RTS_THRESHOLD`
+	if [ "$WLAN0_VAP0_RTS_THRESHOLD" == "256" ] && [ "$WLAN2_VAP0_RTS_THRESHOLD" == "256" ]; then
+		flash set WLAN0_VAP0_RTS_THRESHOLD 2347
+		flash set WLAN2_VAP0_RTS_THRESHOLD 2347
+	fi
+
+
+	#check fragthres
+	eval `$GETMIB WLAN0_FRAG_THRESHOLD`
+	eval `$GETMIB WLAN2_FRAG_THRESHOLD`
+	if [ "$WLAN0_FRAG_THRESHOLD" == "256" ] && [ "$WLAN2_FRAG_THRESHOLD" == "256" ]; then
+		flash set WLAN0_FRAG_THRESHOLD 2346
+		flash set WLAN2_FRAG_THRESHOLD 2346
+	fi
+
+	eval `$GETMIB WLAN0_VAP0_FRAG_THRESHOLD`
+	eval `$GETMIB WLAN2_VAP0_FRAG_THRESHOLD`
+	if [ "$WLAN0_VAP0_FRAG_THRESHOLD" == "256" ] && [ "$WLAN2_VAP0_FRAG_THRESHOLD" == "256" ]; then
+		flash set WLAN0_VAP0_FRAG_THRESHOLD 2346
+		flash set WLAN2_VAP0_FRAG_THRESHOLD 2346
+	fi
+
+
+	if [ "$COUNTRYCODE" == "E1" ]; then
+		#country code EU
+		if [ "$(uci get wireless.wlan1.countryCode)" != "RU" ]; then
+			if [ "$WLAN1_CHANNEL" != "100" ]; then
+				flash set WLAN1_CHANNEL 100
+			fi
+		else
+			if [ "$WLAN1_CHANNEL" != "157" ]; then
+				flash set WLAN1_CHANNEL 157
+			fi
+		fi
+	fi
+
+}
+
+
+start(){
+	#system_install_mode=$(uci get system.main.install_mode)
+	#role=$(uci get system.main.operation_role)
+	eval `$GETMIB WLAN1_MESH_ID`
+	
+	device=$(cat /tmp/WirelessApply)
+	wifi_24G_guest_disable=$(uci get wireless.24Gguest.disable)
+	wifi_5G_guest_disable=$(uci get wireless.5GguestA1.disable)
+	guest_wifi_sync_enable=$(cat /tmp/guest_wifi_sync)
+
+	check_config
+#	if [ "$system_install_mode" != "1" ]; then
+#		COUNTRYCODE=$(atsh|grep "Default Country Code"| grep -v grep | awk -F': ' '{print $2}')
+#		eval `$GETMIB WLAN1_CHANNEL`
+
+#		if [ "$COUNTRYCODE" == "FF" ]; then
+#			#country code FF
+#			if [ "$WLAN1_CHANNEL" != "157" ]; then
+#				flash set WLAN1_CHANNEL 157
+#			fi
+#		else
+#			#country code EU
+#			if [ "$WLAN1_CHANNEL" != "100" ]; then
+#				flash set WLAN1_CHANNEL 100
+#			fi
+#		fi
+#	fi
+
+	if [ "$device" == "wlan0-va0" ] || [ "$device" == "" ]; then
+		#down 5G high guest lan
+		ip link set dev wlan1-va0 nomaster
+		ifconfig wlan1-va0 down
+	fi
+
+	# Hard code for wlan0-msh0 must be down before wlan0 interface down. Moving to /sbin/wifi
+	#if [ "$device" == "" ]; then
+	#	#down 5G low mesh
+	#	if [ "$WLAN1_MESH_ID" != "mesh5" ] && [ "$COUNTRYCODE" == "E1" ]; then
+	#		ip link set dev wlan0-msh0 nomaster
+	#		ifconfig wlan0-msh0 down
+	#	fi
+	#fi
+
+	if [ "$role" == "controller" ]; then
+		#zy1905 send renew message
+		if [ "$system_install_mode" == "1" ]; then
+			if [ -n "$2" -a "$2" == "booting" ]; then
+				echo "Under booting sequence, should not send zy1905 commands to prevent time consuming." > /dev/console
+			else
+				if [ "$device" == "wlan0-va0" ] || [ "$device" == "wlan2-va0" ] ; then
+					if [ "$guest_wifi_sync_enable" == "1" ]; then
+						echo "---------------------rm /tmp/guest_wifi_sync--------------------" > /dev/console
+						rm /tmp/guest_wifi_sync
+					else
+						echo "---------------------send guest wifi sync--------------------" > /dev/console
+						zy1905App 40 2
+						echo "1" > /tmp/guest_wifi_sync
+						echo "---------------------end  send guest wifi sync--------------------" > /dev/console
+					fi
+				else
+					echo "---------------------extender wifi sync--------------------" > /dev/console
+					zy1905App 40 1
+				fi
+			fi
+			# Restart/stop dnsmasq for guest Lan
+			if [ "$wifi_5G_guest_disable" == "1" ] || [ "$wifi_24G_guest_disable" == "1" ]; then
+				/usr/sbin/dnsmasq_guest_lan "STOP"
+			else
+				/usr/sbin/dnsmasq_guest_lan "RESTART"
+			fi
+			sleep 5
+		fi
+
+		if [ "$device" == "" ]; then
+			#Because of wlan1 guest wifi enable/disable is depend on wlan0 guest wifi, therefore we have to bring up all wlan1 interfaces prior than wlan0 to prevent sometimes wlan1-va0 is not enabled.
+			for dev in wlan2 wlan1 wlan0
+			do
+				/sbin/wifi up $dev
+			done
+		else
+			/sbin/wifi up $device
+		fi
+
+		#check_channel &
+
+	else
+		#if [ "$system_install_mode" == "1" ]; then
+		if [ "$WLAN1_MESH_ID" != "mesh5" ]; then
+			/sbin/wifi up $device
+		else
+			stop
+		fi
+	fi
+
+	#set mesh MTU for B.A.T.M.A.N && guest-wlan gre
+	ifconfig wlan1-msh0 mtu 1600
+	ifconfig wlan2-msh0 mtu 1600
+
+    # Comment this since IPTV will registrar failed. Keep its MTU as 1500
+	#ifconfig wlan0 mtu 1550
+	#ifconfig wlan1 mtu 1550
+	#ifconfig wlan2 mtu 1550
+
+    # Configure guest wifi mtu size to 1460
+    if [ "$wifi_24G_guest_disable" == "0" ]; then
+        ifconfig wlan2-va0 mtu 1460
+    fi
+
+    if [ "$wifi_5G_guest_disable" == "0" ]; then
+        ifconfig wlan0-va0 mtu 1460
+	    #Only Root and just 1 DUT then enable 5G high band guest wifi
+        if [ "$role" == "controller" ]; then
+            ifconfig wlan1-va0 mtu 1460
+        fi
+    fi
+
+	#set WiFi 24G CPU interrupts to core1
+	echo 2 > /proc/irq/42/smp_affinity
+
+	#disable 2.4G mesh
+	ip link set dev wlan2-msh0 nomaster
+	ifconfig wlan2-msh0 down
+
+	#Support 5G high guest ap
+	if [ "$device" == "wlan0-va0" ] || [ "$device" == "" ]; then
+		#Only Root and just 1 DUT then enable 5G high band guest wifi
+		systemMode=$(isRootOnly)
+		# echo "================> systemMode: $systemMode" > /dev/console
+		if [ "$wifi_5G_guest_disable" == "0" ] && [ "$(uci get wireless.5GmainA.disable)" == "0" ] && [ "$role" == "controller" ] && [ $systemMode == 1 ]; then
+			#echo "Bring up wlan1 guest wifi." > /dev/console
+			echo "Bring up wlan1 guest wifi. Do nothing now" > /dev/console
+
+    		#bridge=$(uci get wireless.5GguestA1.bridge)
+    		#flash set_mib wlan1-va0
+    		#ifconfig wlan1-va0 up
+    		#ip link set dev wlan1-va0 master $bridge
+    	fi
+    fi
+
+	#Hard code for fixing wlan0-msh0 must be down before wlan0
+	if [ "$device" == "" ] || [ "$device" == "wlan0" ]; then
+		if [ "$WLAN1_MESH_ID" != "mesh5" ] && [ "$COUNTRYCODE" == "E1" ]; then
+			mesh_rssi_th=$(uci get wireless.wlan0.mesh_rssi_th)
+			mesh_period=$(uci get wireless.wlan0.mesh_period)
+		
+			iwpriv wlan0-msh0 set_mib mesh_asoc_rssi_th=$mesh_rssi_th
+			iwpriv wlan0-msh0 set_mib rm_mesh_rssi_th=$mesh_rssi_th
+			iwpriv wlan0-msh0 set_mib rm_mesh_period=$mesh_period
+
+			ifconfig wlan0-msh0 up
+			ifconfig wlan0-msh0 mtu 1600
+			ip link set dev wlan0-msh0 master bat0
+		fi
+	fi
+
+	rm /tmp/WirelessApply
+
+    
+	# For ap_steer : check the SSID is same before upgrade 2.4GHz to 5Ghz
+	WLAN0_SSID=$(cat /proc/wlan0/mib_staconfig | grep dot11DesiredSSID | awk -F') ' '{print $2}')
+	WLAN2_SSID=$(cat /proc/wlan2/mib_staconfig | grep dot11DesiredSSID | awk -F') ' '{print $2}')
+	WLAN0_VA0_SSID=$(cat /proc/wlan0-va0/mib_staconfig | grep dot11DesiredSSID | awk -F') ' '{print $2}')
+	WLAN2_VA0_SSID=$(cat /proc/wlan2-va0/mib_staconfig | grep dot11DesiredSSID | awk -F') ' '{print $2}')
+	[ "$WLAN0_SSID" == "$WLAN2_SSID" ] && MAIN_COMPARE=0 || MAIN_COMPARE=1
+	[ "$WLAN0_VA0_SSID" == "$WLAN2_VA0_SSID" ] && GUEST_COMPARE=0 || GUEST_COMPARE=1
+	echo $MAIN_COMPARE $GUEST_COMPARE > /tmp/compare_ssid
+}
+
+check_channel(){
+	##Check 24G channel from auto change to fix, 24G channel default is auto.
+	eval `$GETMIB WLAN2_CHANNEL`
+	if [ "$WLAN2_CHANNEL" == "0" ] ; then
+		sleep 10
+		channel_24G=$(cat /proc/wlan2/mib_rf|grep "dot11channel:" | grep -v grep | awk '{print $2    }')
+		echo "---------------------set 24G channel : $channel_24G---------------------" > /dev/console
+		flash set WLAN2_CHANNEL $channel_24G
+	fi
+
+}
+
+stop(){
+	/sbin/wifi down
+}
+
+case $1 in
+	start)
+		start $@
+	;;
+	stop)
+		stop
+	;;
+esac

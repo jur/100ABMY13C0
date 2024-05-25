@@ -1,0 +1,59 @@
+#!/bin/sh
+# Copyright (C) 2006-2011 OpenWrt.org
+
+. /sbin/functions.sh
+
+[ $# = 0 ] && { echo "  $0 <group>"; exit; }
+
+case "$1" in
+	"-a")
+		[ -e "/var/resolv.conf" ] && { 
+			rm /var/resolv.conf
+			touch /var/resolv.conf
+		}
+		config_cb() {
+			[ interface != "$1" -o -z "$2" ] || eval "$0 -w $2"
+		}
+		config_load network
+		exit 0
+	;;
+	"-w") shift ;;
+esac
+
+include /sbin
+scan_interfaces
+
+cfg=$1
+debug "### ifdown $cfg ###"
+
+config_get proto "$cfg" proto
+[ -z "$proto" ] && { echo "interface not found."; exit; }
+
+# call all interface stop handler
+[ "$cfg" = "wan" ] && eval "stop_interface_all '$cfg'"
+
+config_get ifname "$cfg" ifname
+config_get device "$cfg" device
+
+[ ."$device" != ."$ifname" ] || device=
+for dev in $ifname $device; do
+	ifconfig "$dev" 0.0.0.0 down >/dev/null 2>/dev/null
+	[ "$dev" = "br0" ] && {
+		local igmpproxypid=$(pidof igmpproxy)
+		[ -n "$igmpproxypid" ] && service_kill igmpproxy "$igmpproxypid"
+	} 
+done
+
+config_get iftype "$cfg" type
+[ "bridge" = "$iftype" ] && {
+	[ "$dev" = "br0" -o "$dev" = "eth0" -o "$dev" = "eth1" ] || {
+		echo "brctl delbr $ifname" > /dev/console
+		brctl delbr "$ifname" >/dev/null 2>/dev/null
+	}
+}
+
+# remove the interface's dns entries
+remove_dns "$cfg"
+
+# remove the interface's network state
+uci_revert_state network "$1"

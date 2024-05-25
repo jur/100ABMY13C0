@@ -1,0 +1,90 @@
+diff -uNr batman-adv-2018.3/net/batman-adv/fast_batman.c batman-adv-2018.3/net/batman-adv/fast_batman.c
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-06-25 15:28:08.942253692 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-06-25 16:56:01.154138965 +0800
+@@ -315,7 +315,7 @@
+ 	return	bat;
+ }
+ 
+-/* find out orig by neigh's addr 
++/* find out orig by destination addr
+  * return orig_node if found
+  * return NULL if failed
+  */
+@@ -328,15 +328,16 @@
+ {
+ 	u32			idx=0;
+ 	//struct batadv_priv	*bat_priv=netdev_priv(soft);
+-	struct hlist_head	*head;
++	struct hlist_head	*head, *head2;
+ 	struct batadv_orig_node	*orig_node;
+ 	struct batadv_neigh_node	*neigh_node;
+ 	struct batadv_hashtable	*hash;//=bat_priv->orig_hash;
++	struct batadv_tt_global_entry	*global;
++	struct batadv_tt_orig_list_entry	*orig_entry;
+ 
+ 	if(bat_priv == NULL)
+ 		bat_priv=netdev_priv(soft);
+ 		
+-	hash=bat_priv->orig_hash;
+ 	//if(!soft) {
+ 	//	FASTBAT_DBG_RAW_MSG("[F@STBAT] Err! no soft iface!\n");
+ 	//	return	NULL;
+@@ -344,6 +345,7 @@
+ 	//bat_priv=netdev_priv(soft);
+ 	//hash=bat_priv->orig_hash;
+ #if	!defined(COLLECT_ORIG_OR_NEIGH)
++	hash=bat_priv->orig_hash;
+ 	for(; idx<hash->size; idx++) {
+ 		head=&hash->table[idx];
+ 		hlist_for_each_entry(orig_node, head, hash_entry) {
+@@ -355,11 +357,18 @@
+ 		}
+ 	}
+ #else
++	hash=bat_priv->tt.global_hash;
+ 	for(; idx<hash->size; idx++) {
+ 		head=&hash->table[idx];
+-		hlist_for_each_entry(orig_node, head, hash_entry) {
+-			if(!memcmp(real, orig_node->orig, ETH_ALEN-1))
+-				return	orig_node;
++		hlist_for_each_entry(global, head, common.hash_entry) {
++			xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] dst is %pM and tt addr is %pM\n", real, global->common.addr);
++			if(!memcmp(real, global->common.addr, ETH_ALEN)) {
++				head2=&global->orig_list;
++				hlist_for_each_entry(orig_entry, head2, list) {
++					xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] orig addr is %pM\n", orig_entry->orig_node->orig);
++					return	orig_entry->orig_node;
++				}
++			}
+ 		}
+ 	}
+ #endif
+@@ -716,15 +725,25 @@
+ #else
+ 		orig_node=fastbat_grab_orig_by_neigh(neigh, ethhdr->h_dest, soft);
+ #endif
+-		if(orig_node != NULL)
++		if(orig_node != NULL) {
++			if(memcmp(bat->src1, neigh, ETH_ALEN-1) == 0) {
++				FASTBAT_ERR_MSG("[F@STBAT] looping!!!\n");
++				bat->dirty=1;
++			}
+ 			ether_addr_copy(bat->orig, orig_node->orig);
+ #if	defined(COLLECT_ORIG_OR_NEIGH)
+-		else
++		} else {
++			FASTBAT_ERR_MSG("[F@STBAT] no orig!!!\n");
++			bat->dirty=1;
+ 			ether_addr_copy(bat->orig, neigh);
+ #endif
++		}
+ 	}
+ 
+-	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list (%pM)=>(%pM)!\n", bat->src, bat->dst);
++	if(bat->dirty)
++		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++	//else
++	//	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list (%pM)=>(%pM)!\n", bat->src, bat->dst);
+ 	//fastbat_show_list_entry(fastbat_hash_calculate(bat->src, bat->dst));
+ 	return	0;
+ FREE:

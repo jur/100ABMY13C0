@@ -1,0 +1,46 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-08-01 14:21:24.976734730 +0800
++++ batman-adv-2018.0.mod_check_locak_iif/net/batman-adv/fast_batman.c	2018-08-02 10:12:53.356583716 +0800
+@@ -459,7 +459,11 @@
+ 	atomic_inc(&__fastmesh_priv.local_count);
+ 	memcpy(local->dst, ethhdr->h_dest, ETH_ALEN);
+ 	local->last_seen=jiffies;
+-	local->iif=skb->skb_iif;
++
++	/* replace storing incoming dev idx with outgoing dev idx */
++	//local->iif=skb->skb_iif;	//incoming
++	local->iif=out->ifindex;	//outgoing
++
+ 	local->output_dev=out;
+ #if		defined(BYPASS_GUEST_LAN)
+ 	if(vlan)
+@@ -1003,18 +1007,21 @@
+ 			FASTBAT_DBG_MSG(" Err! No batman header!\n");
+ 		}
+ 	} else if(is_broadcast_ether_addr(ethhdr->h_dest) && (ethhdr->h_proto==ETH_P_IP)) {
+-		/* find out dhcp request packet */
+-		u8	*check;
+-		FAST_LOCAL	*local;
+-		check=(u8 *)ethhdr + 14 + 20;
+-		/* len of ethernet II + ipv4 header: 14 + 2o
++		/* find out dhcp request and then verdict dev idx */
++		u8				*check;
++		FAST_LOCAL		*local;
++		struct iphdr	*iphdr;
++		
++		iphdr=(struct iphdr *)(ethhdr+1);
++		check=(u8 *)ethhdr + ETH_HLEN + iphdr->ihl*4;
++		/* len of ethernet II + ipv4 header => 14 + 20
+ 		 * source/dest port: 68/67
+ 		 */
+-		if((*(check+1)==0x44) && (*(check+3)==0x43)) { 
+-			/* check if local's exist */
++		if((iphdr->protocol==17) && (*(check+1)==0x44) && (*(check+3)==0x43)) { 
++			/* check if local's existed and delete it */
+ 			local=fastbat_local_search(ethhdr->h_source);
+-			if(local) {
+-				FASTBAT_DBG_RAW_MSG("[B@TMAN] DHCP REQUEST!!!\n");
++			if(local!=NULL && local->iif!=skb->skb_iif) {
++				FASTBAT_DBG_MSG("[F@STBAT] DHCP REQUEST incomes ...\n");
+ 				fastbat_del_local_entry(local);
+ 			}
+ 		}

@@ -1,0 +1,13 @@
+$HTTP["remoteip"] == "|LANIP|"{
+	$HTTP["url"] =~ "^/generate_204($|/)" {
+		server.document-root = "/www/cgi-bin"
+		fastcgi.server += (
+			"generate_204" =>
+			((
+				"socket" => "/tmp/generate_204.socket",
+				"bin-path" => "/www/cgi-bin/generate_204",
+				"max-procs" => 1
+			))
+		)
+	}
+}

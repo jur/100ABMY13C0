@@ -1,0 +1,270 @@
+--- net/batman-adv/bat_v_elp.c	2018-03-02 15:06:34.925279353 +0800
++++ net/batman-adv/bat_v_elp.c	2018-03-02 15:48:07.207764790 +0800
+@@ -67,6 +67,107 @@
+ 			   msecs_to_jiffies(msecs));
+ }
+ 
++#if		defined(WSR30_RTL8192C)
++int calculate_metric(struct wifi_mesh_node *);
++extern struct hlist_head	mesh_head;
++extern int  batadv_get_wifi_link_rate(struct net_device *, u8 *);
++
++/* input: realdev - input iface
++ *        addr - neighbor addr
++ *        node - mesh info
++ * return the corresponding mesh node by ptr
++ * return -ENOENT(-2) if failed,
++ *        node ptr if successfully
++ */
++static int     fake_cfg80211_get_station
++(struct net_device *realdev, 
++ u8 *addr,
++ struct wifi_mesh_node *node)
++{
++	int     retval, found=0;
++	struct wifi_mesh_node   *tmp;
++#if	0//take it off
++	node->metric=calculate_metric;
++	memcpy(node->addr, realdev->dev_addr, ETH_ALEN);
++	memcpy(node->orig, addr, ETH_ALEN);
++#endif
++
++#if	0//take it off
++	/* workaround */
++	{
++	u32	tmp0, tmp1;
++	tmp0=strstr(realdev->name, "wlan0");
++	if(tmp0)
++		node->band=5;
++	else {
++		tmp1=strstr(realdev->name, "wlan1");
++		if(tmp1)
++			node->band=2;
++		else
++			printk(KERN_ERR "[Batman] worng iface name\n");
++	}
++	}
++#endif
++
++#if	1	// link rate
++	retval=batadv_get_wifi_link_rate(realdev, addr);
++#else	// metric
++	#if	0
++	/* grab mesh node info */
++	retval=batadv_get_orig_info(realdev, node);
++	node->metric=calculate_metric;
++	return  node;
++	#else
++	/* check linked list */
++	if(hlist_empty(&mesh_head)) {
++		printk(KERN_ERR "[*] list is empty!!!\n");
++		retval=-ENOENT;
++		goto	RETN;
++	}
++	/* travel all list nodes */
++	hlist_for_each_entry/*_rcu*/(tmp, &mesh_head, list) {
++		if(!memcmp(tmp->orig, addr, ETH_ALEN) && !memcmp(tmp->addr, realdev->dev_addr, ETH_ALEN)) {
++			node=tmp;
++			node->metric=calculate_metric;  /*FIXME*/
++			found=1;
++			printk(KERN_INFO "[BATMAN] Metric-%d %d - %d - %d %x %x\n", node->band, 
++				node->rssi_metric, node->cu_metric, node->noise_metric, node, node->metric);
++			//break;
++			return  node;//0;
++		} else {
++			if(time_after(jiffies, tmp->timeval)) {     /*timeout*/
++				__hlist_del(tmp);
++				printk(KERN_INFO "[BATMAN] Timeout! delete mesh info!!!\n");
++			}
++		}
++	}
++	if(!found) {
++		printk(KERN_INFO "[BATMAN] Cannot find out this mesh metric!!!\n");
++		retval=-ENOENT;
++		goto	RETN;
++	}
++	#endif
++#endif
++
++#if	0
++	/* TODO: transfer table */
++	/* transfer_tbl */
++	if(node->band == 2)
++	else if(node->band == 5)
++#endif
++	/*printk(KERN_ERR "[Metric-%d] %d - %d - %d %x %x\n", node->band, 
++		node->rssi_metric, node->cu_metric, node->noise_metric, node, node->metric);
++	printk(KERN_ERR "[Iface] %x %x %x %x %x %x\n", 
++		node->addr[0], node->addr[1], node->addr[2], 
++		node->addr[3], node->addr[4], node->addr[5]);
++	printk(KERN_ERR "[Neigh] %x %x %x %x %x %x\n", 
++		node->orig[0], node->orig[1], node->orig[2], 
++		node->orig[3], node->orig[4], node->orig[5]);*/
++RETN:
++	return	retval;
++}
++#endif	//WSR30_RTL8192C
++
+ /**
+  * batadv_v_elp_get_throughput() - get the throughput towards a neighbour
+  * @neigh: the neighbour for which the throughput has to be obtained
+@@ -78,12 +179,13 @@
+ {
+ 	struct batadv_hard_iface *hard_iface = neigh->if_incoming;
+ #if	defined(WSR30_RTL8192C)
+-	struct port_status	link_settings;
++	struct port_status		link_settings;
++	struct wifi_mesh_node   *sinfo;
+ #else
+ 	struct ethtool_link_ksettings link_settings;
++	struct station_info sinfo;
+ #endif	//WSR30_RTL8192C
+ 	struct net_device *real_netdev;
+-	struct station_info sinfo;
+ 	u32 throughput;
+ 	int ret;
+ 
+@@ -106,6 +208,52 @@
+ 		if (!real_netdev)
+ 			goto default_throughput;
+ 
++#if		defined(WSR30_RTL8192C)
++	#if	1	//link rate
++		ret=fake_cfg80211_get_station(real_netdev, neigh->addr, sinfo);
++		dev_put(real_netdev);
++
++		if (ret == -ENOENT) {
++			/* Node is not associated anymore! It would be
++			 * possible to delete this neighbor. For now set
++			 * the throughput metric to 0.
++			 */
++			return  0;
++		}
++		if(ret) {
++			ret=10 * ret;   /* 100kbps base */
++			//printk(KERN_INFO "[BATMAN] rate: %d\n", ret);
++			return	ret;
++		}
++	#else	//metric
++		ret=fake_cfg80211_get_station(real_netdev, neigh->addr, sinfo);
++		dev_put(real_netdev);
++
++		if (ret == -ENOENT) {
++			/* Node is not associated anymore! It would be
++			 * possible to delete this neighbor. For now set
++			 * the throughput metric to 0.
++			 */
++			return	0;
++		} else
++			sinfo=(struct wifi_mesh_node *)ret;
++
++		if(sinfo) {
++			if((sinfo->dirty==-1) && (sinfo->dirty==0))
++				return  sinfo->ewma_metric;
++			if(sinfo && sinfo->metric) {
++				sinfo->dirty=0;
++				return  sinfo->metric(sinfo);
++			} else {
++				printk(KERN_ERR "[BATMAN] NUll metric func!!! %x %x\n", sinfo, sinfo->metric);
++				goto	default_throughput;
++			}
++		} else {
++			printk(KERN_ERR "[BATMAN] No sinfo found!!!\n");
++		}
++	#endif
++
++#else	//original method: cfg80211
+ 		ret = cfg80211_get_station(real_netdev, neigh->addr, &sinfo);
+ 
+ 		dev_put(real_netdev);
+@@ -122,6 +270,7 @@
+ 			goto default_throughput;
+ 
+ 		return sinfo.expected_throughput / 100;
++#endif	//WSR30_RTL8192C
+ 	}
+ 
+ 	/* if not a wifi interface, check if this device provides data via
+@@ -252,6 +401,33 @@
+ #define PortStatusLinkSpeed1000M    (2<<0)      /* 1000M */
+ #define PortStatusLinkSpeedReserved (3<<0)      /* Reserved Speed */
+ 
++int    calculate_metric
++(struct wifi_mesh_node *node)
++{
++	u32 rssi_metric=node->rssi_metric;
++	u32	cu_metric=node->cu_metric;
++	u32	noise_metric=node->noise_metric;
++	int	is_5g=(node->band == 5)? 1:0;
++	int	is_2g=(node->band == 2)? 1:0;
++	u32	rssi_score, cu_score, noise_score, cur_metric;
++	struct wifi_mib_value   *tmp_mib_value;
++
++#if	1
++	if(is_5g)
++		tmp_mib_value=&mib_value_of_5g;
++	else if(is_2g)
++		tmp_mib_value=&mib_value_of_2g;
++#endif
++	rssi_score=(rssi_metric < tmp_mib_value->rssi_threshold)? (100-rssi_metric)<<2 : (100-rssi_metric);
++	cu_score=(cu_metric > tmp_mib_value->cu_threshold)? (cu_metric<<1) : cu_metric;
++	noise_score=((cu_metric > tmp_mib_value->cu_threshold)&&(noise_metric > tmp_mib_value->noise_threshold))? noise_metric : 0;
++	cur_metric=(rssi_score*tmp_mib_value->rssi_weight) + (cu_score*tmp_mib_value->cu_weight) + (noise_score*tmp_mib_value->noise_weight);
++
++	node->ewma_metric=cur_metric;
++	printk(KERN_INFO "[BATMAN] band-%d metric-%d\n", node->band, cur_metric);
++	return  cur_metric;
++}
++
+ int    get_port_status
+ (struct net_device *netdev, 
+  struct port_status *status)
+
+--- net/batman-adv/bat_v_elp.h	2018-03-02 15:06:34.929279306 +0800
++++ net/batman-adv/bat_v_elp.h	2018-03-02 15:50:33.510014825 +0800
+@@ -30,8 +30,25 @@
+ 	int	duplex;		//0/1
+ 	int	speed;		//10/100/1000/500
+ };
++struct wifi_mesh_node {
++	//struct list_head      list;
++	struct hlist_node       list;
++	s8      dirty;
++	u8      band;
++	u8      orig[ETH_ALEN];
++	u8      addr[ETH_ALEN];
++	u32     rssi_metric;
++	u32     cu_metric;
++	u32     noise_metric;
++	u32     ewma_metric;
++	u32     throughput;
++	unsigned long   timeval;	//jiffies + 600*HZ
++	int		(*metric)(struct wifi_mesh_node *);
++	int		(*transfer_tbl)(u8 band, int metric);
++};
++extern int     batadv_get_orig_info(struct net_device *, struct wifi_mesh_node *);
+ extern int  batadv_get_port_status(struct net_device *, struct port_status *);
+-#endif
++#endif	//WSR30_RTL8192C
+ 
+ struct sk_buff;
+ struct work_struct;
+
+--- net/batman-adv/hard-interface.c	2018-02-27 16:49:11.000000000 +0800
++++ net/batman-adv/hard-interface.c	2018-03-02 15:52:11.316845828 +0800
+@@ -331,6 +331,14 @@
+ 
+ 	if (batadv_is_cfg80211_netdev(net_device))
+ 		wifi_flags |= BATADV_HARDIF_WIFI_CFG80211_DIRECT;
++#if		defined(WSR30_RTL8192C)
++	{
++		u32	tmp;
++		tmp=strstr(net_device->name, "-msh");
++		if(tmp)
++			wifi_flags |= BATADV_HARDIF_WIFI_CFG80211_DIRECT;
++	}
++#endif
+ 
+ 	real_netdev = batadv_get_real_netdevice(net_device);
+ 	if (!real_netdev)
+

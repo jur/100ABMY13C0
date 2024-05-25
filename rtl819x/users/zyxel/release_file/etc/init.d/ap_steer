@@ -1,0 +1,132 @@
+#!/bin/sh
+
+. /sbin/functions.sh
+
+BIN_FILE="/usr/bin/ap_steer"
+CONF_FILE="/var/ap_steer.conf"
+
+write_section_title()
+{
+	echo "" >> $CONF_FILE
+	echo $1 >> $CONF_FILE
+}
+
+write_content()
+{
+	local section="$1"
+	local option="$2"
+	
+	config_get value $section $option
+	echo "$option=$value" >> $CONF_FILE
+}
+
+write_conf_file()
+{
+	write_section_title '[2.4GHz]'
+	write_content rssi_threshold WiFi_24G_NormalToBad_Threshold
+	write_content rssi_threshold WiFi_24G_NormalToGood_Threshold
+	write_content rssi_threshold WiFi_24G_Upgrade_Threshold
+	
+	write_section_title '[5GHz]'
+	write_content rssi_threshold WiFi_5G_NormalToBad_Threshold
+	write_content rssi_threshold WiFi_5G_NormalToGood_Threshold
+	
+	write_section_title '[Both]'
+	write_content rssi_threshold RE_Threshold_Adjustment
+	write_content rssi_threshold Min_RCPI_Difference
+	write_content rssi_threshold Min_Avg_RSSI_Movement
+	write_content rssi_threshold More_RCPI_Threshold
+	write_content rssi_threshold Best_5G_RCPI_Threshold
+	write_content rssi_threshold Min_Mesh_Throughput_Difference
+	write_content rssi_threshold Grade_Mesh_Throughput_Threshold
+	
+	write_section_title '[Counter]'
+	write_content counter Idle_Pkt_Threshold
+	write_content counter STA_Num_Difference_Threshold
+	write_content counter Min_Idle_Counter
+	write_content counter Max_Failed_Steering
+	
+	write_section_title '[Timer]'
+	write_content timer SteeringTime
+	write_content timer ProhibitAfterSteering
+	write_content timer ClearSteeringStatus
+	write_content timer ScanOtherAPsInterval
+	write_content timer LoadBalancingInterval
+	write_content timer BcnRptInterval
+	
+	write_section_title '[System]'
+	write_content system LogLevel
+	write_content system Prohibit_Steering_OverWDS_AP
+	write_content system DisableSteering
+	write_content system EnableBlacklist
+	
+	write_section_title '[Exclusion]'
+	i=1
+	while [ $i -le 64 ]; do
+		MacAddr="MacAddr$i"
+		config_get MAC exclude_list $MacAddr
+		
+		if [ -z "$MAC" ] || [ "$MAC" == "00:00:00:00:00:00" ]; then
+			break
+		fi
+		
+		echo "$MacAddr=$MAC" >> $CONF_FILE
+		i=`expr $i + 1`
+	done
+	
+}
+
+stop()
+{
+	[ -f "/var/run/aps_watchdog.pid" ] &&
+		kill "$(cat /var/run/aps_watchdog.pid)" &&
+		rm /var/run/aps_watchdog.pid
+	
+	[ -f "/var/run/ap_steer.pid" ] &&
+		kill "$(cat /var/run/ap_steer.pid)" &&
+		rm /var/run/ap_steer.pid
+	
+	if [ -e $CONF_FILE ]; then
+		rm $CONF_FILE
+	fi
+}
+
+start()
+{
+	config_load ap_steer
+	config_get enable global enable
+	config_get config_file global config_file
+	
+	stop
+
+	if [ $enable == 1 ]; then
+		write_conf_file
+
+		$BIN_FILE -c $CONF_FILE &
+		aps_pid=$!
+		echo $aps_pid >/var/run/ap_steer.pid
+		
+		watch -tn 10 /bin/aps_monitor 1>/dev/null 2>&1 &
+		aps_pid=$!
+		echo $aps_pid >/var/run/aps_watchdog.pid
+	fi
+}
+
+restart()
+{
+	echo "Restarting Ap Steering ..."
+	start	
+}
+
+case $1 in
+	start)
+	 	start
+	;;
+	stop)
+		stop
+	;;
+	restart)
+		restart
+	;;
+esac
+exit 0

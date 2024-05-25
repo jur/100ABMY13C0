@@ -1,0 +1,39 @@
+config ap_steer global
+	option enable						'1'
+	option showAdvance					'0'
+
+config ap_steer rssi_threshold
+	option WiFi_24G_NormalToBad_Threshold	'10'
+	option WiFi_24G_NormalToGood_Threshold	'20'
+	option WiFi_24G_Upgrade_Threshold		'45'
+	option WiFi_5G_NormalToBad_Threshold	'10'
+	option WiFi_5G_NormalToGood_Threshold	'25'
+	option RE_Threshold_Adjustment			'7'
+	option Min_RCPI_Difference				'10'
+	option Min_Avg_RSSI_Movement			'5'
+	option More_RCPI_Threshold				'210'
+	option Best_5G_RCPI_Threshold			'200'
+	option Min_Mesh_Throughput_Difference	'70'
+	option Grade_Mesh_Throughput_Threshold  '300'
+
+config ap_steer counter
+	option Idle_Pkt_Threshold				'10'
+	option STA_Num_Difference_Threshold		'10'
+	option Min_Idle_Counter					'10'
+	option Max_Failed_Steering				'3'
+	
+config ap_steer timer
+	option SteeringTime					'22'
+	option ProhibitAfterSteering		'120'
+	option ClearSteeringStatus			'60'
+	option ScanOtherAPsInterval			'60'
+	option LoadBalancingInterval 		'0'
+	option BcnRptInterval				'60'
+	
+config ap_steer system
+	option LogLevel						'0'
+	option Prohibit_Steering_OverWDS_AP	'1'
+	option DisableSteering				'0'
+	option EnableBlacklist				'0'
+	
+config ap_steer exclude_list

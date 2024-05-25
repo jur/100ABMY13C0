@@ -1,0 +1,24 @@
+--- batman-adv-2018.0/net/batman-adv/bat_v_elp.c	2018-08-24 13:49:43.228540920 +0800
++++ batman-adv-2018.0/net/batman-adv/bat_v_elp.c	2018-08-24 13:57:31.848539930 +0800
+@@ -215,17 +215,18 @@
+ 		ret=fake_cfg80211_get_station(real_netdev, neigh->addr, sinfo);
+ 		dev_put(real_netdev);
+ 
+-		if (ret == -ENOENT) {
++		if(ret == -ENOENT) {
+ 			/* Node is not associated anymore! It would be
+ 			 * possible to delete this neighbor. For now set
+ 			 * the throughput metric to 0.
+ 			 */
+ 			return  0;
+-		}
+-		if(ret) {
++		} else if(ret > 0) {
+ 			ret=10 * ret;   /* 100kbps base */
+ 			//printk(KERN_INFO "[BATMAN] rate: %d\n", ret);
+ 			return	ret;
++		} else {
++			return	0;
+ 		}
+ 	#else	//metric
+ 		ret=fake_cfg80211_get_station(real_netdev, neigh->addr, sinfo);

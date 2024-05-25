@@ -1,0 +1,127 @@
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 15:33:51.818474124 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 15:57:51.642471083 +0800
+@@ -70,7 +70,11 @@
+ static void	fastbat_show_list_entry(u32 idx);
+ static FAST_BAT	*fastbat_skb_peel_and_search(struct sk_buff *);
+ static void fastbat_del_list_entry(FAST_BAT *);
+-static struct batadv_orig_node	*fastbat_grab_orig_by_neigh(u8 *addr, struct net_device *); 
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
++static struct batadv_orig_node	*fastbat_grab_orig_by_neigh(u8 *addr, struct net_device *);
++#else
++static struct batadv_orig_node	*fastbat_grab_orig_by_neigh(u8 *, u8 *, struct net_device *);
++#endif
+ static void	fastbat_del_local_entry(FAST_LOCAL *);
+ static void	fastbat_show_local_entry(void);
+ 
+@@ -296,6 +300,9 @@
+  */
+ static struct batadv_orig_node	*fastbat_grab_orig_by_neigh
+ (u8 *addr, 
++#if	defined(COLLECT_ORIG_OR_NEIGH)
++ u8 *real, 
++#endif
+  struct net_device *soft)
+ {
+ 	u32			idx=0;
+@@ -315,6 +322,7 @@
+ 	//}
+ 	//bat_priv=netdev_priv(soft);
+ 	//hash=bat_priv->orig_hash;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 	for(; idx<hash->size; idx++) {
+ 		head=&hash->table[idx];
+ 		hlist_for_each_entry(orig_node, head, hash_entry) {
+@@ -325,7 +333,16 @@
+ 			}
+ 		}
+ 	}
+-	FASTBAT_ERR_MSG("[F@STBAT] failed to find orig!\n");
++#else
++	for(; idx<hash->size; idx++) {
++		head=&hash->table[idx];
++		hlist_for_each_entry(orig_node, head, hash_entry) {
++			if(!memcmp(real, orig_node->orig, ETH_ALEN-1))
++				return	orig_node;
++		}
++	}
++#endif
++	xxxFASTBAT_DBG_MSG("[F@STBAT] failed to find orig!\n");
+ 	return	NULL;
+ }
+ 
+@@ -638,9 +655,17 @@
+ 	ether_addr_copy(bat->dst, ethhdr->h_dest);
+ 	if(neigh) {
+ 		struct batadv_orig_node	*orig_node;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 		orig_node=fastbat_grab_orig_by_neigh(neigh, soft);
++#else
++		orig_node=fastbat_grab_orig_by_neigh(neigh, ethhdr->h_dest, soft);
++#endif
+ 		if(orig_node != NULL)
+ 			ether_addr_copy(bat->orig, orig_node->orig);
++#if	defined(COLLECT_ORIG_OR_NEIGH)
++		else
++			ether_addr_copy(bat->orig, neigh);
++#endif
+ 	}
+ 
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] insert new list!\n");
+@@ -1393,8 +1418,13 @@
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+ 				if(bat->dirty == 1)
+ 					continue;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 				if(!memcmp(bat->orig, orig->orig, ETH_ALEN)) {
+ 					if(!memcmp(bat->src , addr, ETH_ALEN) || !memcmp(bat->dst, addr, ETH_ALEN)) {
++#else
++				if(!memcmp(bat->orig, orig->orig, ETH_ALEN-1)) {
++					if(!memcmp(bat->src , addr, ETH_ALEN-1) || !memcmp(bat->dst, addr, ETH_ALEN-1)) {
++#endif
+ 						bat->dirty=1;
+ 						dirty=1;
+ 						FASTBAT_DBG_RAW_MSG("[F@STBAT] find out::(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", 
+@@ -1443,7 +1473,11 @@
+ 			if(bat->dirty)
+ 				continue;
+ 			//if(!memcmp(addr, bat->dst1, ETH_ALEN) || !memcmp(addr, bat->src1, ETH_ALEN)) {
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 			if(!memcmp(addr, bat->orig, ETH_ALEN)) {
++#else
++			if(!memcmp(addr, bat->orig, ETH_ALEN-1)) {
++#endif
+ 				bat->dirty=1;
+ 				dirty=1;
+ 				FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", 
+@@ -1470,7 +1504,11 @@
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+ 				if(bat->dirty == 1)
+ 					continue;
++#if	!defined(COLLECT_ORIG_OR_NEIGH)
+ 				if(!memcmp(bat->orig, orig_node->orig, ETH_ALEN)) {
++#else
++				if(!memcmp(bat->orig, orig_node->orig, ETH_ALEN-1)) {
++#endif
+ 					bat->dirty=1;   /*dirty*/
+ 					dirty=1;
+ 					FASTBAT_DBG_RAW_MSG("[F@STBAT] find out:(o)%pM\n (s)%pM\n (d)%pM\n (rs)%pM\n (rd)%pM\n", 
+@@ -1637,7 +1675,7 @@
+ 	seq_printf(seq, "[global size]: %d\n", atomic_read(&__fastmesh_priv.global_count));
+ 	seq_printf(seq, "[local size]: %d\n", atomic_read(&__fastmesh_priv.local_count));
+ 	/* global bats */
+-	seq_puts(seq, "(No.)   [idx] <src>             <dst>             <realsrc>         <realdst>         <orig>            <dirty> <batman> <vlan> <batman-type> <dev>\n");
++	seq_puts(seq, "(No.)   [idx] <src>             <dst>             <realsrc>         <realdst>         <orig/neigh>      <dirty> <batman> <vlan> <batman-type> <dev>\n");
+ 	for(; idx<FAST_BAT_LIST_LEN; idx++) {
+ 		if(!hlist_empty(&bats[idx])) {
+ 			hlist_for_each_entry(bat, &bats[idx], list) {
+--- batman-adv-2018.3/net/batman-adv/fast_batman.h	2018-11-09 15:33:51.818474124 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.h	2018-11-09 15:37:44.178473633 +0800
+@@ -22,6 +22,8 @@
+ #define FAST_BAT_GLOBAL_LEN_MAX	50000
+ #define FAST_BAT_LOCAL_LEN_MAX	512
+ 
++#define	COLLECT_ORIG_OR_NEIGH
++
+ typedef struct fastmesh_priv {
+ 	struct batadv_priv	*batman_priv;	/* so far, just support one batman iface */
+ 	atomic_t	global_count;			/* total global bats */

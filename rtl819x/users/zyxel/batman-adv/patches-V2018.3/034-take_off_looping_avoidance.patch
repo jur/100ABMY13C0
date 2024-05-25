@@ -1,0 +1,29 @@
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-07-10 01:53:21.271126290 +0000
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-07-04 06:55:52.730049612 +0000
+@@ -730,10 +730,10 @@
+ 		orig_node=fastbat_grab_orig_by_neigh(neigh, ethhdr->h_dest, soft);
+ #endif
+ 		if(orig_node != NULL) {
+-			if(memcmp(bat->src1, neigh, ETH_ALEN-1) == 0) {
++			/*if(memcmp(bat->src1, neigh, ETH_ALEN-1) == 0) {
+ 				FASTBAT_ERR_MSG(" looping!!!\n");
+ 				bat->dirty=1;
+-			}
++			}*/
+ 			ether_addr_copy(bat->orig, orig_node->orig);
+ #if	defined(COLLECT_ORIG_OR_NEIGH)
+ 		} else {
+--- batman-adv-2018.3/net/batman-adv/fast_batman.h	2019-07-10 01:53:21.175126292 +0000
++++ batman-adv-2018.3/net/batman-adv/fast_batman.h	2019-07-10 01:46:55.831134678 +0000
+@@ -18,9 +18,9 @@
+ #define FASTBAT_DBG			0			/* debug mode: [0..2] */
+ #define PUSH_THE_PACE		1			/* speed up */
+ //#define ETH_ALEN			6
+-#define FASTBAT_DIRTY_PURGE	3000		/* msec */
++#define FASTBAT_DIRTY_PURGE	300			/* msec */
+ #define ETH_VLAN_HLEN		18
+-#define FAST_BAT_LIST_LEN	32
++#define FAST_BAT_LIST_LEN	64
+ #define FAST_BAT_GLOBAL_LEN_MAX	50000
+ #define FAST_BAT_LOCAL_LEN_MAX	512
+ 

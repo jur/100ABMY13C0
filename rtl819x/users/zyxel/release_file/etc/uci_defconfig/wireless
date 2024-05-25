@@ -1,0 +1,61 @@
+#For RTK triband
+#config wifi iface
+#    option allID '5GmainA 5GguestA1 5GmainB 5GmeshB 24Gmain 24Gguest 24Gmesh'
+
+config wifi wlan0
+    option down 			'5GguestA1 5GmainA'
+    option up   			'5GmainA 5GguestA1'
+	option disable_txpwrlmt '0'
+	#20-100=-80db
+	option mesh_rssi_th		'20'
+	option mesh_period		'60'
+
+config wifi wlan1
+    option down 			'5GmeshB 5GmainB'
+    option up   			'5GmainB 5GmeshB'
+	option disable_txpwrlmt '0'
+	#22-100=-78db
+	option mesh_rssi_th		'22'
+	option mesh_period      '60'
+	#option countryCode		'RU'
+
+config wifi wlan2
+    option down 			'24Gguest 24Gmesh 24Gmain'
+    option up   			'24Gmain 24Gguest 24Gmesh'
+	option disable_txpwrlmt '0'
+
+config ID           '5GmainA'
+    option iface    'wlan0'   
+    option disable  '0'
+    option bridge   'br0'
+
+config ID           '5GguestA1'
+    option iface    'wlan0-va0'
+    option disable  '1'
+    option bridge   'guest-lan'
+
+config ID           '5GmainB'   
+    option iface    'wlan1'
+    option disable  '0'
+    option bridge   'br0'
+
+config ID           '5GmeshB'   
+    option iface    'wlan1-msh0'
+    option disable  '1'
+    option bridge   'bat0'
+
+config ID           '24Gmain'   
+    option iface    'wlan2'
+    option disable  '0'
+    option bridge   'br0'
+
+config ID           '24Gguest'
+    option iface    'wlan2-va0'
+    option disable  '1'
+    option bridge   'guest-lan'
+
+config ID           '24Gmesh'   
+    option iface    'wlan2-msh0'
+    option disable  '1'
+    option bridge   'bat0'
+

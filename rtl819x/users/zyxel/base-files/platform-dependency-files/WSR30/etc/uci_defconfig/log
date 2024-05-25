@@ -1,0 +1,11 @@
+config log zlog
+    option path '/tmp/ApplicationData/zlog/'
+    option filename 'device.log'
+    option max_rotate 2
+    option max_entry 200
+
+config log cloudagent
+    option path '/tmp/ApplicationData/cloudagent/'
+    option filename 'cloudagnet.log'
+    option max_rotate 2
+

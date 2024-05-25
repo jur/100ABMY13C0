@@ -1,0 +1,116 @@
+#!/bin/sh
+
+usage() {
+    echo "/etc/init.d/miniupnpd [start|stop|restart|save|restore]"
+}
+
+proto=$(uci get network.wan.proto)
+if [ "$proto" == "pppoe" ]; then
+	WAN="ppp0"
+else
+	WAN=`uci get network.wan.ifname`
+fi
+
+boot() {
+    upnp_enable=$(uci get upnpd.config.enabled)
+    [ "$upnp_enable" == "1" ] && {
+    /sbin/act_miniupnpd
+    echo "miniupnpd starting ..."
+	}
+}
+
+start() {
+    upnp_enable=$(uci get upnpd.config.enabled)
+    [ "$upnp_enable" == "1" ] && {
+        upnp_pid=$(cat /var/run/miniupnpd.pid)
+        [ -z "$upnp_pid" ] && {
+            /sbin/act_miniupnpd
+            echo "miniupnpd starting ..."
+        }
+
+        ## iptables app reorder
+        if [ -z "$(iptables -L -t nat | awk '/^Chain MINIUPNPD / {print $2}')" ]; then
+            iptables -t nat -N MINIUPNPD
+        fi
+        if [ -z "$(iptables -L -t nat | awk '/^Chain MINIUPNPD-POSTROUTING / {print $2}')" ]; then
+            iptables -t nat -N MINIUPNPD-POSTROUTING
+        fi
+
+        iptables -t mangle -N MINIUPNPD 2>/dev/null
+        if [ -z "$(iptables -L -t filter | awk '/^Chain MINIUPNPD / {print $2}')" ]; then
+            iptables -N MINIUPNPD
+        fi
+        /usr/sbin/iptables_app_order
+    }
+}
+
+stop() {
+	pnpd_pid=$(cat /var/run/miniupnpd.pid) 2>&- >&-
+	kill $pnpd_pid 2>&-
+
+	iptables -t nat -F MINIUPNPD 2>/dev/null
+	iptables -t nat -D PREROUTING -i $WAN -j MINIUPNPD
+	iptables -t nat -X MINIUPNPD 2>/dev/null
+
+	iptables -t nat -F MINIUPNPD-POSTROUTING 2>/dev/null
+	iptables -t nat -D POSTROUTING -o $WAN -j MINIUPNPD-POSTROUTING
+	iptables -t nat -X MINIUPNPD-POSTROUTING 2>/dev/null
+
+	iptables -t mangle -F MINIUPNPD 2>/dev/null
+	iptables -t mangle -D PREROUTING -i $WAN -j MINIUPNPD	
+	iptables -t mangle -X MINIUPNPD 2>/dev/null
+	
+	iptables -F MINIUPNPD 2>/dev/null
+	iptables -D FORWARD -i $WAN ! -o $WAN -j MINIUPNPD
+	iptables -X MINIUPNPD 2>/dev/null
+}
+
+restart() {
+    stop
+    start
+}
+
+save() {
+    #Saving the existed upnp iptables rules into temp file
+    #nat rules
+    rm /tmp/upnp_nat_rule.sh
+    iptables -t nat -nv -L MINIUPNPD | sed -n '3,$p' | awk -f /usr/sbin/upnp_nat_ports.awk
+    #filter rules
+    rm /tmp/upnp_filter_rule.sh
+    iptables -t filter -nv -L MINIUPNPD | sed -n '3,$p' | awk -f /usr/sbin/upnp_filter_ports.awk
+}
+
+restore() {
+    #Reload the previous upnp iptables rules into iptables
+    #nat rules
+    [ -f /tmp/upnp_nat_rule.sh ] && {
+        /tmp/upnp_nat_rule.sh
+    }
+    #filter rules
+    [ -f /tmp/upnp_filter_rule.sh ] && {
+        /tmp/upnp_filter_rule.sh
+    }
+}
+
+case $1 in
+    "start")
+        start
+    ;;
+    "stop")
+        stop
+    ;;
+    "restart")
+        restart
+    ;;
+    "save")
+        save
+    ;;
+    "restore")
+        restore
+    ;;
+    *|help)
+        usage
+        exit 1
+    ;;
+esac
+exit 0

@@ -1,0 +1,180 @@
+#!/bin/sh
+
+filename="/tmp/parental_info"
+filenametmp="/tmp/parental_tmp"
+
+rm -f $filenametmp
+rm -f $filename
+
+DEVICE_ENABLE=1
+
+check_week()
+{
+	local week_now="$1"
+	local week_src="$2"
+	#echo "week_now = " $week_now
+	#echo "week_src = " $week_src
+	
+	local RET=`echo $week_src | grep $week_now`
+	#echo "RET = " $RET
+
+	if [ "$RET" == "" ]; then
+		DEVICE_ENABLE=0
+	fi
+	#echo "check_week DEVICE_ENABLE = " $DEVICE_ENABLE
+}
+
+check_time()
+{
+	local now="$1"
+	local start="$2"
+	local stop="$3"
+
+
+	#echo "now   = " $now
+	#echo "start = " $start
+	#echo "stop  = " $stop
+
+	if [ $start -lt $now ] && [ $now -lt $stop ]; then
+		DEVICE_ENABLE=1
+	else
+		DEVICE_ENABLE=0
+	fi
+	#echo "check_time DEVICE_ENABLE = " $DEVICE_ENABLE
+
+}
+
+#--------------------------------------------------------------
+#  get parental data
+#--------------------------------------------------------------
+PARENTAL_ENABLE=`uci get parental.general.enable`
+#echo "PARENTAL_ENABLE="$PARENTAL_ENABLE
+
+if [ "$PARENTAL_ENABLE" == "1" ]; then
+	PARENTAL_NUMBER=`uci get parental.general.count`
+	#echo "PARENTAL_NUMBER="$PARENTAL_NUMBER
+
+	WEEK=`date '+%A'`
+	#echo "WEEK="$WEEK
+
+	if [ "$WEEK" == "Monday" ]; then
+		WEEKDAY="Mon"
+	elif [ "$WEEK" == "Tuesday" ]; then
+		WEEKDAY="Tue"
+	elif [ "$WEEK" == "Wednesday" ]; then
+		WEEKDAY="Wed"
+	elif [ "$WEEK" == "Thursday" ]; then
+		WEEKDAY="Thu"
+	elif [ "$WEEK" == "Friday" ]; then
+		WEEKDAY="Fri"
+	elif [ "$WEEK" == "Saturday" ]; then
+		WEEKDAY="Sat"
+	elif [ "$WEEK" == "Sunday" ]; then
+		WEEKDAY="Sun"
+	else
+		WEEKDAY="NULL"
+	fi
+
+	TIME_H=`date '+%H'`
+	#echo "TIME_H="$TIME_H
+	TIME_M=`date '+%M'`
+	#echo "TIME_M="$TIME_M
+	TIME=$TIME_H$TIME_M
+	#echo "TIME="$TIME
+
+	RULE_NAME="rule"
+	for sitenu in $(seq 1 $PARENTAL_NUMBER)
+	do
+
+		DEVICE_ENABLE=1
+
+	SRC_NAME=`uci get parental.$RULE_NAME$sitenu.name`
+	SRC_MAC=`uci get parental.$RULE_NAME$sitenu.src_mac`
+	SRC_WEEKDAYS=`uci get parental.$RULE_NAME$sitenu.weekdays`
+	SRC_START_HOUR=`uci get parental.$RULE_NAME$sitenu.start_hour`
+	SRC_START_MIN=`uci get parental.$RULE_NAME$sitenu.start_min`
+	SRC_STOP_HOUR=`uci get parental.$RULE_NAME$sitenu.stop_hour`
+	SRC_STOP_MIN=`uci get parental.$RULE_NAME$sitenu.stop_min`
+	SRC_ACT=`uci get parental.$RULE_NAME$sitenu.service_act`
+	SRC_ENABLE=`uci get parental.$RULE_NAME$sitenu.enable`
+
+	SRC_START=$SRC_START_HOUR$SRC_START_MIN
+	SRC_STOP=$SRC_STOP_HOUR$SRC_STOP_MIN
+
+	#echo "SRC_NAME       = "$SRC_NAME
+	#echo "SRC_MAC        = "$SRC_MAC
+	#echo "SRC_WEEKDAYS   = "$SRC_WEEKDAYS
+	#echo "SRC_START_HOUR = "$SRC_START_HOUR
+	#echo "SRC_START_MIN  = "$SRC_START_MIN
+	#echo "SRC_START      = "$SRC_START
+	#echo "SRC_STOP_HOUR  = "$SRC_STOP_HOUR
+	#echo "SRC_STOP_MIN   = "$SRC_STOP_MIN
+	#echo "SRC_STOP       = "$SRC_STOP
+	#echo "SRC_ACT        = "$SRC_ACT
+	#echo "SRC_ENABLE     = "$SRC_ENABLE
+
+		if [ "$SRC_ENABLE" == "1" ]; then
+			if [ "$DEVICE_ENABLE" = "1" ]; then
+				check_week $WEEKDAY $SRC_WEEKDAYS
+			fi
+
+			if [ "$DEVICE_ENABLE" == "1" ]; then
+				check_time $TIME $SRC_START $SRC_STOP
+			fi
+		fi
+
+		SAME_MAC=0
+		if [ -f $filenametmp ]; then
+			while read check; do
+				#echo "check = "$check
+				MAC=${check:0:17}
+				if [ "$MAC" == "$SRC_MAC" ]; then
+					#echo "find...."
+					SAME_MAC=1
+					
+				fi
+			done < $filenametmp
+		fi
+		
+		#echo "==================>"$SRC_MAC","$DEVICE_ENABLE","$SAME_MAC
+		echo $SRC_MAC","$DEVICE_ENABLE","$SAME_MAC >> $filenametmp
+	done
+fi
+
+cat $filenametmp
+
+#--------------------------------------------------------------
+#  check same mac data
+#--------------------------------------------------------------
+
+if [ ! -f $filenametmp ]; then
+	exit
+fi
+
+while read check_line1; do
+    #echo $check_line1
+	DEVICE_ENABLE=0
+	MAC=${check_line1:0:17}
+	same=`expr substr "$check_line1" 21 1`
+	#echo "MAC  = "$MAC
+	#echo "same = "$same
+
+	while read check_line2; do
+		check_MAC=${check_line2:0:17}
+		check_enable=`expr substr "$check_line2" 19 1`
+		if [ "$MAC" == "$check_MAC" ]; then
+			#echo "check_MAC    = "$check_MAC
+			#echo "check_enable = "$check_enable
+			if [ "$check_enable" == "1" ]; then
+				DEVICE_ENABLE=1
+			fi
+		fi
+	done < $filenametmp
+	
+	if [ "$same" == "0" ]; then
+		#echo $filename "=" $MAC $DEVICE_ENABLE
+		echo $MAC $DEVICE_ENABLE >> $filename
+	fi
+done < $filenametmp
+
+rm -f $filenametmp

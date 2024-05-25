@@ -1,0 +1,38 @@
+--- batman-adv-2018.0/net/batman-adv/routing.c	2018-05-14 14:18:27.543153730 +0800
++++ batman-adv-2018.0/net/batman-adv/routing.c	2018-05-14 14:16:11.367154018 +0800
+@@ -951,6 +951,10 @@
+ 	return NET_RX_DROP;
+ }
+ 
++#if		defined(CONFIG_BATMAN_ADV_FASTBAT)
++extern int fastmesh_enable;
++#endif
++
+ /**
+  * batadv_recv_unicast_packet() - Process incoming unicast packet
+  * @skb: incoming packet buffer
+@@ -977,7 +981,7 @@
+ 	ethhdr = eth_hdr(skb);
+ 
+ #if		defined(CONFIG_BATMAN_ADV_FASTBAT)
+-	{
++	if(fastmesh_enable) {
+ 		extern FAST_LOCAL *fastbat_local_search(u8 *);
+ 		extern struct ethhdr *fastbat_grab_real_ethhdr(struct sk_buff *);
+ 		extern int fastbat_xmit_peel(struct sk_buff *, FAST_LOCAL *);
+@@ -1003,12 +1007,15 @@
+ 			goto	DONOTHING;
+ 		//else
+ 		//	printk(KERN_ERR "[B@TMAN] - real - (src)%pM (dst)%pM\n", real->h_source, real->h_dest);
++
++		/* verdict local bat */
+ 		local=fastbat_local_search(real->h_dest);
+ 		if(local != NULL) {
+ 			retval=fastbat_xmit_peel(skb, local);
+ 			if(retval >= 0)
+ 				return	NET_RX_SUCCESS;
+ 		}
++		/* verdict global bat */
+ 		pass=fastbat_filter_input_packet(skb, &vlan, &batman);
+ 		if(pass) {
+ 			bat=fastbat_list_search(real->h_source, real->h_dest);

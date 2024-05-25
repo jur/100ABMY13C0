@@ -1,0 +1,106 @@
+#!/bin/sh
+
+GETMIB="flash get"
+BRIDGE1="br0"
+BAT_IFACE="bat0"
+VLAN_ETH_IFACE_ID="300"
+
+vlan_set(){
+	if [ "$1" == "add" ]; then
+		vconfig add $iface $VLAN_ETH_IFACE_ID
+		ifconfig $iface.$VLAN_ETH_IFACE_ID up
+		ip link set dev $iface.$VLAN_ETH_IFACE_ID master $BAT_IFACE
+
+		#RTK switch support vlan
+		echo add $VLAN_ETH_IFACE_ID 0x10f 0x00d > /proc/rtl865x/vlan
+	else
+		ip link set dev $iface.$VLAN_ETH_IFACE_ID nomaster
+		ifconfig $iface.$VLAN_ETH_IFACE_ID down
+		vconfig del $iface $VLAN_ETH_IFACE_ID
+
+		#RTK switch remove support vlan
+		echo del $VLAN_ETH_IFACE_ID 0x10f 0x00d > /proc/rtl865x/vlan
+	fi
+}
+
+run_check(){
+	iface="$1"
+	check_state="fail"
+
+	#get ethernet bridge status
+	key=$(brctl show |grep $1)
+	bridge_status="bridge"
+	if [ -z $key ]; then
+		bridge_status="backhaul"
+	fi
+
+	if [ "$bridge_status" == "bridge" ]; then
+		#Add ethernet VLAN interface
+		vlan_set "add"
+	else
+		vlan_set "del"
+	fi
+
+	while true :
+	do
+		eth_link_status=$(cat /proc/$iface/link_status)
+		if [ "$eth_link_status" == "1" ]; then
+			#ethernet link up
+			change="0"
+
+			check_key="$iface.$VLAN_ETH_IFACE_ID"
+			if [ "$bridge_status" == "backhaul" ]; then
+				check_key="$iface"
+			fi
+
+			change=$(cat /tmp/batman_debug/batman_adv/bat0/neighbors | while read LINE
+			do
+				check_state=$(echo $LINE | grep "$check_key" |awk -F " " '{if($2 == "adv"){print "fail"}else{if($2*10 < 80){print "ok"}else{print "fail"}}}')
+				if [ "$check_state" == "ok" ]; then
+					echo "1"
+					break
+				fi
+			done)
+
+			if [ "$change" == "1" ]; then
+				if [ "$bridge_status" == "bridge" ]; then
+					sleep 3
+					echo ""
+					echo ""
+					echo "Type : detect switch"
+					echo "Change $iface for B.A.T.M.A.N"
+					echo ""
+					echo ""
+					vlan_set "del"
+					ip link set dev $iface nomaster
+					ip link set dev $iface master $BAT_IFACE
+					bridge_status="backhaul"
+				fi
+				#break
+			else
+				if [ "$bridge_status" == "backhaul" ]; then
+					vlan_set "add"
+					ip link set dev $iface nomaster
+					ip link set dev $iface master $BRIDGE1
+					bridge_status="bridge"
+				fi
+			fi
+		else
+			#ethernet link down
+			vlan_set "del"
+			break
+		fi
+		sleep 1
+	done
+}
+
+case $1 in
+	eth0|eth1)
+		run_check $@
+	;;
+	*)
+		echo "#############CMD error###################"
+		echo "Usage: zyxel_switchBackhaul <eth0 or eth1>"
+	;;
+esac
+exit 0

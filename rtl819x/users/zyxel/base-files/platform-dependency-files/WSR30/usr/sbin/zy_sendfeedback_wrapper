@@ -1,0 +1,75 @@
+#!/bin/sh
+
+trap processUserSig SIGUSR1
+#SIGRTMIN signal number is 33
+trap processUserSig_dbg SIGRTMIN+1
+
+#debug log path
+dbg_enable=0
+ZLOG_PATH="/tmp/ApplicationData/zlog"
+DEVICE_LOG_IN_RAM="/tmp/zlog/tmp/ApplicationData/zlog/device.log*"
+CLOUDAGENT_LOG_IN_RAM="/tmp/.cloudagent/logs/cloudagent_l.log*"
+ZY1905_LOG="/tmp/zy1905/log/*.tar.gzip"
+start_flag=0
+
+processUserSig() {
+    time_stamp=$(date +%s)
+    echo "$time_stamp: caught signal SIGUSR1 "
+    feedback_warpper
+}
+
+processUserSig_dbg() {
+    [ "$dbg_enable" == "0" ] && dbg_enable=1 || dbg_enable=0
+}
+
+feedback_warpper() {
+    start_flag=1
+    echo "start flag: $start_flag"
+    zy1905App 26
+    #Diagnostic
+    diagnostic 2> /dev/null > $ZLOG_PATH/diagnostic.log
+    cp $CLOUDAGENT_LOG_IN_RAM $ZLOG_PATH
+    cp $DEVICE_LOG_IN_RAM $ZLOG_PATH
+}
+
+checking_warpping_status() {
+    #Checking zy1905 logs collecting status
+    zy1905_log_result=$(cat /tmp/zy1905/log/DownloadLog_flag 2> /dev/null | sed -n '1p')
+    if [ "$zy1905_log_result" == "fail" ] || [ "$zy1905_log_result" == "success" ]; then
+        cp $ZY1905_LOG $ZLOG_PATH
+        start_flag=2
+    fi
+}
+
+wrapping_log() {
+    zip -rP !zyxel123 /tmp/deviceLog.zip $ZLOG_PATH/*
+
+    rm -rf /tmp/zy1905/log/*
+    rm $ZLOG_PATH/*.tar.gzip
+    rm $ZLOG_PATH/diagnostic.log
+    rm $ZLOG_PATH/cloudagent_l.log
+
+    start_flag=3
+}
+
+echo $$ > /var/run/zy_sendfeedback.pid
+
+exec >/tmp/outfile
+exec 2>/tmp/errfile
+exec 0</dev/null
+
+while true; do
+
+    [ $dbg_enable == "1" ] && echo "start_flag: $start_flag" > /dev/console
+
+    if [ "$start_flag" == "1" ]; then
+        checking_warpping_status
+    elif [ "$start_flag" == "2" ]; then
+        wrapping_log
+    elif [ "$start_flag" == "3" ]; then
+        echo 'complete' > /tmp/sendfeedback.check
+        start_flag=0
+    fi
+
+    sleep 2
+done

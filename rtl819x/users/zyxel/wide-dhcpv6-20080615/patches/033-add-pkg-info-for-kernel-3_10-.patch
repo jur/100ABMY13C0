@@ -1,0 +1,14 @@
+--- a/common.h	2018-01-15 09:39:37.539316800 +0800
++++ b/common.h	2018-01-15 09:42:40.600235976 +0800
+@@ -99,6 +99,11 @@
+ #define SO_REUSEPORT SO_REUSEADDR
+ #endif
+ 
++struct in6_pktinfo {
++        struct in6_addr ipi6_addr;
++        unsigned int    ipi6_ifindex;
++};
++
+ /* s*_len stuff */
+ static __inline u_int8_t
+ sysdep_sa_len (const struct sockaddr *sa)

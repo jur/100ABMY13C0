@@ -1,0 +1,12 @@
+#!/bin/sh
+
+flag_file="/tmp/check_internet_ok_$1"
+save_file="/tmp/check_internet_file"
+
+rm -rf "$save_file" "$flag_file"
+if [ "$1" == "wget" ]; then
+   tmpstr="$@"" -O $save_file"
+   $tmpstr && touch "$flag_file"
+   rm -f "$save_file"
+fi
+

@@ -1,0 +1,80 @@
+#!/bin/sh
+
+BRIDGE_INTERFACE=br0
+IGD_PID_FILE=/var/run/miniupnpd.pid
+
+help()
+{
+	echo "Zyxel miniigd control script"
+	echo "Usage:		zy_miniigd <Behavior>"
+	echo "Behavior:		start|stop|restart|enableMiniigd|disableMiniigd"
+}
+
+start() {
+
+  	route del -net 239.255.255.250 netmask 255.255.255.255 $BRIDGE_INTERFACE
+  	route add -net 239.255.255.250 netmask 255.255.255.255 $BRIDGE_INTERFACE
+
+	#eval `flash get WAN_DHCP`
+	wan_dhcp_mode=$(uci get network.wan.proto)
+	echo "WAN DHCP: $wan_dhcp_mode"
+	#eval `flash get UPNP_ENABLED`
+	upnpd_enabled=$(uci get upnpd.config.enabled)
+	eval `flash get OP_MODE`
+	#WanIP=$(ip addr show eth1 | grep "inet " | awk '{print $2}' | cut -d "/" -f 0)
+
+	if [ "$upnpd_enabled" == "1" ] && [ "$OP_MODE" == "0" ]; then
+		if [ "$wan_dhcp_mode" == "static" ]; then
+			miniigd -e 0 -i $BRIDGE_INTERFACE
+		elif [ "$wan_dhcp_mode" == "dhcp" ]; then
+			miniigd -e 1 -i $BRIDGE_INTERFACE
+		elif [ "$wan_dhcp_mode" == "pppoe" ]; then
+			miniigd -e 3 -i $BRIDGE_INTERFACE
+		fi
+	else
+		if [ "$OP_MODE" == "1" ]; then
+			echo "Device is in bridge mode."
+		fi
+		if [ "$upnpd_enabled" == "0" ]; then
+			echo "UPNP is disabled"
+		fi
+		echo "To properly enable miniigd, please first use /bin/zy_miniigd enable."
+	fi
+}
+
+stop() {
+	killall -15 miniigd 2> /dev/null
+	if [ -f "$IGD_PID_FILE" ]; then
+		rm -f $IGD_PID_FILE
+	fi
+}
+
+case $1 in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	enableMiniigd)
+		flash set UPNP_ENABLED 1
+		uci set upnpd.config.enabled=1
+		uci commit upnpd
+		start
+		;;
+	disableMiniigd)
+		flash set UPNP_ENABLED 0
+		uci set upnpd.config.enabled=0
+		uci commit upnpd
+		stop
+		;;
+	*)
+		help
+		exit 5
+		;;
+esac
+exit 0

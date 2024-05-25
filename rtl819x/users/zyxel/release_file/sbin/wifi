@@ -1,0 +1,543 @@
+#!/bin/sh
+############ Set debug flage ############
+##         1:echo show                 ##
+##         2:echo to console           ##
+##         3:echo to file              ##
+#########################################
+DEBUG_FLAG=2 
+DEBUG(){
+        [ "$DEBUG_FLAG" == "1" ] && echo "###wifi Debug log######/// $@ ////////" 
+        [ "$DEBUG_FLAG" == "2" ] && echo "###wifi Debug log######/// $@ ////////" > /dev/console
+        [ "$DEBUG_FLAG" == "3" ] && echo "###wifi Debug log######/// $@ ////////" >> /tmp/wifi_debug_log
+}
+
+GETMIB="flash get"
+iface_list=""
+iface_id=""
+ApprovalFile="/tmp/ApplicationData/Approvelist"
+
+#if wlan1 (5G high band) is ap+mesh mode, turn on/off synchronized with wlan0.
+isRootOnly() {
+    if [ "$(uci get system.main.operation_role)" == "controllee" ]; then
+		rootOnly=0
+	else
+		rootOnly=1
+		if [ -f $ApprovalFile ]; then
+			while read line; do
+				if [ "$(echo $line | awk -F ' ' '{print$2}')" == "1" ]; then
+					echo "More than 1 device in the system" > /dev/console
+					rootOnly=0
+					break
+				fi
+			done < $ApprovalFile
+			if [ $rootOnly == "1" ]; then
+				echo "Root Only" > /dev/console
+			fi
+		else
+			echo "Root Only" > /dev/console
+			rootOnly=1
+		fi
+	fi
+
+    echo $rootOnly
+}
+
+set_wlan1_ap_ctrl() {
+    eval `flash get WLAN1_MODE`
+    if [ "$WLAN1_MODE" = "4" ] && [ "$(uci get system.main.operation_role)" == "controller" ]; then
+		#echo "!!!!!!!Here we go! turn $1 wlan1 ap since it shall synchronize with 5g low. " > /dev/console
+		guest_wifi_disable=$(uci get wireless.5GguestA1.disable)
+		if [ "$1" == "off" ]; then
+			iwpriv wlan1 set_mib hiddenAP=1
+			iwpriv wlan1 set_mib mesh_ap_enable=0
+			# Always turn off guest when main wifi is disable
+			ip link set dev wlan1-va0 nomaster
+			ifconfig wlan1-va0 down
+		elif [ "$1" == "down" ]; then
+			ifconfig wlan1-msh0 down
+			ifconfig wlan1-va0 down
+			ifconfig wlan1 down
+		else
+			iwpriv wlan1 set_mib hiddenAP=0
+			iwpriv wlan1 set_mib mesh_ap_enable=1
+		fi
+	fi
+}
+
+get_iface_name(){
+	#ifaceID=$(uci get wireless.iface.allID)
+	for main_dev in wlan0 wlan1 wlan2
+	do
+		ifaceID=$(uci get wireless.$main_dev.up)
+		for dev in $ifaceID
+		do
+			iface_name=$(uci get wireless.$dev.iface)
+			check_mesh=$(echo $iface_name |grep msh0)
+			if [ ! "$check_mesh" ]; then
+				iface_list="$iface_list $iface_name"
+			fi
+		done
+	done
+
+	#DEBUG "--get_iface_name--iface_list:$iface_list"
+}
+
+get_iface_id(){
+	chk_iface=$1
+	over=0
+	#ifaceID=$(uci get wireless.iface.allID)
+	for main_dev in wlan0 wlan1 wlan2
+	do
+		ifaceID=$(uci get wireless.$main_dev.up)
+		for dev in $ifaceID
+		do
+			iface_name=$(uci get wireless.$dev.iface)
+
+			if [ "$chk_iface" == "$iface_name" ]; then
+				iface_id="$dev"
+				over=1
+				break
+			fi
+		done
+		if [ $over == 1 ]; then
+			break
+		fi
+	done
+
+	#DEBUG "--get_iface_name--iface_list:$iface_list"
+}
+
+help(){
+	get_iface_name
+	echo "###########################################"
+	echo "###ZYXEL WiFi enable disable script V1.0###"
+	echo "###########################################"
+	echo "Usage:              wifi <Type> <Interface>"
+	echo "Type :              up          #enable"
+	echo "                    down        #disable"
+	echo "Interface<Option> : $iface_list"
+
+}
+
+check_iface(){
+	if [ "$2" ]; then
+		get_iface_name
+		flag="NO"
+		for dev in $iface_list
+		do
+			if [ "$2" == "$dev" ]; then
+				flag="YES"
+				break
+			fi
+		done
+
+		if [ "$flag" == "NO" ]; then
+			help
+			exit 0
+		fi
+	fi
+}
+
+down_wlanApp(){
+	killall iapp
+	killall iwcontrol
+} 
+
+start_wlanApp(){
+	DEBUG "[start_wlanApp] : restart wlanApp"
+	#down_wlanApp
+
+	iapp_list="br0"
+	iwcontrol_list=""
+
+	for main_dev in wlan0 wlan1 wlan2
+	do
+		ifaceID=$(uci get wireless.$main_dev.up)
+		for dev in $ifaceID
+		do
+			iface_name=$(uci get wireless.$dev.iface)
+			disable=$(uci get wireless.$dev.disable)
+
+			if [ "$disable" == "0" ]; then
+				#For check mesh interface
+				check_mesh=$(echo $iface_name |grep msh0)
+				if [ ! "$check_mesh" ]; then
+					iwcontrol_list="$iwcontrol_list $iface_name"
+					#interface wlan1 is WiFi mesh only
+					if [ "$iface_name" != "wlan1" ]; then
+						iapp_list="$iapp_list $iface_name"
+					fi
+				fi
+			fi
+
+		done
+	done
+
+	DEBUG "[start_wlanApp] : iapp_list : $iapp_list"
+	DEBUG "[start_wlanApp] : iwcontrol_list : $iwcontrol_list"
+	iapp $iapp_list
+	iwcontrol $iwcontrol_list
+
+	# killall pathsel
+
+	# pathsel -i wlan1-msh0 -P -d
+	# pathsel -i wlan2-msh0 -P -d
+}
+
+other_set_mib(){
+	iface_name="$1"
+
+	role=$(uci get system.main.operation_role)
+	COUNTRYCODE=$(atsh|grep "Default Country Code"| grep -v grep | awk -F': ' '{print $2}')
+
+	if [ "$COUNTRYCODE" == "FF" ]; then
+		#country code FF
+		DFS_disable=1
+		txpwr_lmt_index=1
+		adaptivity_enable=0
+		if [ "$iface_name" == "wlan0" ]; then
+			#Set power table with REG_DOMAIN FF:1 EU:2
+			iwpriv $iface_name set_mib txpwr_lmt_index=$txpwr_lmt_index
+		fi
+	else
+		#country code EU
+		DFS_disable=0
+		txpwr_lmt_index=2
+		adaptivity_enable=1
+
+		user_countryCode=$(uci get wireless.wlan1.countryCode)
+		if [ "$user_countryCode" == "RU" ]; then
+			#For Russia, configure all three interfaces power table index
+			txpwr_lmt_index=3
+			if [ "$iface_name" == "wlan1" ]; then
+				iwpriv wlan1 set_mib regdomain=12
+			fi
+		else
+			if [ "$iface_name" != "wlan0" ]; then
+				txpwr_lmt_index=0
+			fi
+		fi
+		echo "$iface_name: txpwr_lmt_index: $txpwr_lmt_index" > /dev/console
+		iwpriv $iface_name set_mib txpwr_lmt_index=$txpwr_lmt_index
+	fi
+
+
+	check_mesh=$(echo $iface_name |grep msh0)
+	
+	#For check mesh interface setting
+	if [ "$check_mesh" ]; then
+		iwpriv $iface_name set_mib mesh_portal_enable=1
+		DEBUG "[wifi_up] : $1 set mib 'mesh_portal_enable=1'"
+
+		if [ "$iface_name" == "wlan1-msh0" ]; then
+			mesh_rssi_th=$(uci get wireless.wlan1.mesh_rssi_th)
+			mesh_period=$(uci get wireless.wlan1.mesh_period)
+
+			iwpriv $iface_name set_mib mesh_asoc_rssi_th=$mesh_rssi_th
+			iwpriv $iface_name set_mib rm_mesh_rssi_th=$mesh_rssi_th
+			iwpriv $iface_name set_mib rm_mesh_period=$mesh_period
+		fi
+	fi
+
+	if [ "$iface_name" == "wlan0" ] || [ "$iface_name" == "wlan1" ] || [ "$iface_name" == "wlan2" ]; then
+		#Default enable Tx power limit function
+		disable_txpwrlmt=$(uci get wireless.$iface_name.disable_txpwrlmt)
+		iwpriv $iface_name set_mib disable_txpwrlmt=$disable_txpwrlmt
+
+		#Country: EU , enable adaptivity
+		iwpriv $iface_name set_mib adaptivity_enable=$adaptivity_enable
+		if [ "$iface_name" == "wlan1" ]; then
+			iwpriv $iface_name set_mib TH_L2H_Ini=ee
+		fi
+
+		#Disable power control
+		if [ "$iface_name" == "wlan0" ]; then
+			iwpriv $iface_name set_mib tx_pwr_ctrl=1
+		else
+			iwpriv $iface_name set_mib tx_pwr_ctrl=0
+		fi
+	fi
+
+	if [ "$iface_name" == "wlan0" ] || [ "$iface_name" == "wlan1" ]; then
+		#Set DFS enable disable
+		iwpriv $iface_name set_mib disable_DFS=$DFS_disable
+
+		if [ "$COUNTRYCODE" == "E1" ]; then
+			#Set DFS CAC detect PASS
+			iwpriv $iface_name set_mib dfs_psd_idle_on=0
+			iwpriv $iface_name set_mib dfs_psd_TP_on=0
+
+#			if [ "$role" == "controllee" ]; then
+				#When DUT role is controllee , set DFS debug mode enable.
+				#dfsdbgmode: 1(enable) 0(disable) ,default disable.
+#				iwpriv $iface_name set_mib dfsdbgmode=1
+#			fi
+		fi
+	fi
+
+	#if [ "$iface_name" == "wlan0" ]; then
+		#Set power table with REG_DOMAIN FF:1 EU:2
+	#	iwpriv $iface_name set_mib txpwr_lmt_index=$txpwr_lmt_index
+	#fi
+
+	# Configure CCA value
+	#iwpriv $iface_name set_mib dig_enable=0
+
+	#For AP+Mesh mode
+	if [ "$iface_name" == "wlan0" ] || [ "$iface_name" == "wlan0-va0" ] || [ "$iface_name" == "wlan1" ] || [ "$iface_name" == "wlan1-va0" ]; then
+
+		check_iface=$(echo $iface_name |grep wlan0)
+		check_mode=0
+
+		if [ "$check_iface" ]; then
+			eval `$GETMIB WLAN0_MODE`
+			check_mode=$WLAN0_MODE
+		else
+			eval `$GETMIB WLAN1_MODE`
+			check_mode=$WLAN1_MODE
+		fi
+
+		if [ "$check_mode" == "4" ]; then
+			ap_disable=$(uci get wireless.5GmainA.disable)
+
+			if [ "$ap_disable" == "1" ]; then
+				iwpriv $iface_name set_mib hiddenAP=1
+				iwpriv $iface_name set_mib mesh_ap_enable=0
+			fi
+
+			if [ "$iface_name" == "wlan1" ]; then
+				if [ "$(uci get system.main.operation_role)" == "controller" ]; then
+					if [ "$(isRootOnly)" == 0 ]; then
+						iwpriv $iface_name set_mib hiddenAP=1
+						iwpriv $iface_name set_mib mesh_ap_enable=0
+					fi
+				else
+					iwpriv $iface_name set_mib hiddenAP=1
+					iwpriv $iface_name set_mib mesh_ap_enable=0
+				fi
+			fi
+		fi
+	fi
+
+    #For IPTV CPU loading 100%, drop unknown multicast to unicast packets.
+    iwpriv $iface_name set_mib mc2u_drop_unknown=1
+}
+
+up_iface(){
+	echo "up_iface: $iface_name"
+	iface_name=$(uci get wireless.$1.iface)
+	bridge_name=$(uci get wireless.$1.bridge)
+
+	check_mesh=$(echo $iface_name |grep msh0)
+
+	#For mesh interface not run set_mib
+	if [ ! "$check_mesh" ]; then
+		flash set_mib $iface_name
+		/sbin/zyxel_batmanSetup set_wlan_mac $iface_name
+	fi
+
+	other_set_mib $iface_name
+
+	ifconfig $iface_name up
+	ip link set dev $iface_name master $bridge_name
+
+	
+	# Configure CCA value
+	#if [ "$iface_name" == "wlan0" ]; then
+	#	iwpriv $iface_name write_reg b,c50,3b
+	#	iwpriv $iface_name write_reg b,e50,3b
+	#elif [ "$iface_name" == "wlan1" ]; then
+	#	iwpriv $iface_name write_reg b,c50,37
+	#	iwpriv $iface_name write_reg b,e50,37
+	#elif [ "$iface_name" == "wlan2" ]; then
+	#	iwpriv $iface_name write_reg b,c50,28
+	#	iwpriv $iface_name write_reg b,c58,28
+	#else
+	#	echo 'Should not in this case.'
+	#fi
+
+	if [ "$iface_name" == "wlan0" ]; then
+		if [ $(isRootOnly) == 1 ] && [ "$(uci get wireless.5GmainA.disable)" == "0" ]; then
+			set_wlan1_ap_ctrl "on"
+		fi
+	fi
+
+	if [ $(isRootOnly) == 1 ] && [ "$iface_name" == "wlan0-va0" ] && [ "$(uci get system.main.operation_role)" == "controller" ]; then
+		flash set_mib wlan1-va0
+		/sbin/zyxel_batmanSetup set_wlan_mac wlan1-va0
+		ifconfig wlan1-va0 up
+		ip link set dev wlan1-va0 master guest-lan
+	fi
+
+	DEBUG "[wifi_up] : wifi up $iface_name"
+}
+
+do_up(){
+	ifaceID=$(uci get wireless.$1.up)
+	for dev in $ifaceID
+	do
+		iface_name=$(uci get wireless.$dev.iface)
+		disable=$(uci get wireless.$dev.disable)
+		if [ "$iface_name" == "wlan0" ] || [ "$iface_name" == "wlan1" ] || [ "$iface_name" == "wlan2" ]; then
+			mode="0"
+			main_wifi_disable="0"
+			if [ "$iface_name" == "wlan0" ]; then
+				eval `$GETMIB WLAN0_MODE`
+				mode=$WLAN0_MODE
+			else
+				if [ "$iface_name" == "wlan1" ]; then
+					eval `$GETMIB WLAN1_MODE`
+					mode=$WLAN1_MODE
+				else
+					eval `$GETMIB WLAN2_MODE`
+					mode=$WLAN2_MODE
+				fi
+			fi
+			if [ "$mode" == "0" ]; then
+				if [ "$disable" == "1" ]; then
+					DEBUG "[wifi_up] : ********$iface_name is disable********"
+					main_wifi_disable="1"
+					break
+				fi
+			else
+				#AP+mesh mode(mode=4)
+				if [ "$disable" == "1" ]; then
+					main_wifi_disable="1"
+				fi
+				disable="0"
+			fi
+			
+			if [ "$disable" == "0" ]; then
+				up_iface $dev
+			fi
+			
+		else
+			if [ "$disable" == "0" ] && [ "$main_wifi_disable" == "0" ]; then
+				up_iface $dev
+			fi
+		fi
+	done
+}
+
+down_iface(){
+	# Hard code for wlan0-msh0 must be shutted down before wlan0
+	if [ "$1" == "wlan0" ]; then
+		eval `$GETMIB WLAN0_MODE`
+		if [ "$WLAN0_MODE" == "4" ]; then
+			ip link set dev wlan0-msh0 nomaster
+			ifconfig wlan0-msh0 down
+		fi
+		set_wlan1_ap_ctrl "off"
+	fi
+	ip link set dev $1 nomaster
+	ifconfig $1 down
+	DEBUG "[wifi_down] : wifi down $1"
+}
+
+do_down(){
+	ifaceID=$(uci get wireless.$1.down)
+	for dev in $ifaceID
+	do
+		iface_name=$(uci get wireless.$dev.iface)
+		down_iface $iface_name
+	done
+}
+
+wifi_up(){
+	if [ "$2" ]; then
+		if [ "$2" == "wlan0" ] || [ "$2" == "wlan1" ] || [ "$2" == "wlan2" ]; then
+			do_up $2
+		else
+			get_iface_id $2
+			disable=$(uci get wireless.$iface_id.disable)
+			if [ "$disable" == "0" ]; then
+				up_iface $iface_id
+			fi
+		fi
+	else
+		for main_dev in wlan0 wlan1 wlan2
+		do
+			do_up $main_dev
+		done
+	fi
+
+	start_wlanApp
+	#/sbin/zyxel_batmanSetup set_wlan_mac
+}
+
+wifi_down(){
+	if [ "$2" ]; then
+		if [ "$2" == "wlan0" ] || [ "$2" == "wlan1" ] || [ "$2" == "wlan2" ]; then
+			do_down $2
+		else
+			down_iface $2
+		fi
+	else
+		for main_dev in wlan0 wlan1 wlan2
+		do
+			do_down $main_dev
+		done
+	fi
+
+	down_wlanApp
+}
+
+set_wifi_up_list(){
+	rm -rf /tmp/wifiUP_list
+
+	eval `flash get WLAN1_MESH_ID`
+	echo "5G Mesh id: $WLAN1_MESH_ID"
+
+	if [ "$WLAN1_MESH_ID" = "mesh5" ]; then
+		is_def_mesh=1
+	else
+		is_def_mesh=0
+	fi
+
+	install=$(uci get system.main.install_mode)
+
+	#if [ "$1" == "add" ] && [ "$install" == "1" ] ; then
+	if [ "$1" == "add" ] && [ "$is_def_mesh" == "0" ] ; then
+		for main_dev in wlan0 wlan1 wlan2
+		do
+			ifaceID=$(uci get wireless.$main_dev.up)
+			for dev in $ifaceID
+			do
+				disable=$(uci get wireless.$dev.disable)
+				if [ "$disable" == "0" ]; then
+					iface_name=$(uci get wireless.$dev.iface)
+#					check_mesh=$(echo $iface_name |grep msh0)
+#					if [ ! "$check_mesh" ]; then
+						echo $iface_name >> /tmp/wifiUP_list
+#					fi
+				fi
+			done
+		done
+	fi
+
+}
+
+lock /tmp/.wifi_reload.lock
+
+set_wifi_up_list del
+
+case $1 in
+	down)
+		check_iface $@
+		wifi_down $@
+	;;
+	up|reload)
+		check_iface $@
+		wifi_down $@
+		wifi_up $@
+	;;
+	*)
+		help
+	;;
+esac
+
+set_wifi_up_list add
+
+lock -u /tmp/.wifi_reload.lock
+
+exit 0

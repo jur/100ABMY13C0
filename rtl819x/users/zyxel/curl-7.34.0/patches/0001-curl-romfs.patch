@@ -1,0 +1,10 @@
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -1280,4 +1280,6 @@ $(VC8LIBPRJ): $(VC8LIBPRJ_DEPS)
+ .NOEXPORT:
+ 
+ romfs:
+-	@echo "Do nothing here."
++	@cp -d src/.libs/curl $(DIR_ROMFS)/bin/
++	@cp -d lib/.libs/libcurl.so* $(DIR_ROMFS)/lib/
++	@echo "copy curl&bin to romfs"

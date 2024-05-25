@@ -1,0 +1,164 @@
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 13:49:49.738487310 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-11-09 14:24:25.134482926 +0800
+@@ -1020,6 +1020,7 @@
+ {
+ 	int	retval=0;
+ 
++#if	(PUSH_THE_PACE == 1)
+ 	/* checking input */
+ 	/*if(unlikely(bat->net_dev)) {
+ 		retval=-ENODEV;
+@@ -1030,14 +1031,13 @@
+ 		retval=-ENODEV;
+ 		goto    RETN;
+ 	}*/
++#endif
+ 	if(!(bat->net_dev->flags & IFF_UP)) {
+ 		retval=-EINVAL;
+ 		goto	RETN;
+ 	}
+ 	if(bat->dirty == 1) {
+-		FASTBAT_DBG_MSG("[F@STBAT] ERR! wrong bat!\n");
+-		/* eliminate this bat */
+-		
++		FASTBAT_DBG_MSG("[F@STBAT] PASS! dirty bat!\n");
+ 		retval=-EINVAL;
+ 	}
+ RETN:
+@@ -1064,7 +1064,9 @@
+ 		FASTBAT_ERR_MSG(" Err! No batman header!\n");
+ 		goto	ERR;
+ 	}*/
++#if	(PUSH_THE_PACE == 1)
+ 	if(bat->batman) {
++#endif
+ 		if(bat->batman_type == BATADV_UNICAST) {
+ 			hdr_len=sizeof(struct batadv_unicast_packet);
+ 		} else if(bat->batman_type == BATADV_UNICAST_4ADDR) {
+@@ -1073,24 +1075,26 @@
+ 			retval=-EINVAL;
+ 			goto	ERR;
+ 		}
++#if	(PUSH_THE_PACE == 1)
+ 	} else {
+ 		retval=-EINVAL;
+ 		FASTBAT_ERR_MSG(" Err! no batman header!\n");
+ 		goto	ERR;
+ 	}
++#endif
+ 	if(bat->vlan) {
+ 		hdr_len += VLAN_ETH_HLEN; 
+ 	} else {
+ 		hdr_len += ETH_HLEN;
+ 	}
+ 
+-	//move forward data ptr for hdr_len bytes, and reset mac header
++#if	(PUSH_THE_PACE == 0)
++	/* move forward data ptr for hdr_len bytes, and reset mac header */
+ 	xxxfastbat_show_raw_data((void *)skb->data, 32);
+ 	ethhdr=eth_hdr(skb);
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] push ethhdr(%p) data(%p) head(%p) mac(%p)\n", 
+ 		ethhdr, skb->data, skb->head, skb_mac_header(skb));
+ 
+-#if	(PUSH_THE_PACE == 0)
+ 	/* if not the same, alter skb's data ptr location to real ethernet header */
+ 	if((skb->data - skb->mac_header) != 0)
+ 		skb_push(skb, (skb->data - skb->mac_header));
+@@ -1103,10 +1107,15 @@
+ 	}
+ #else
+ 	//if((skb->data - skb->mac_header) != 0) {
+-		skb_push(skb, (skb->data - skb->mac_header) + hdr_len);
++		//skb_push(skb, (skb->data - skb->mac_header) + hdr_len);
++		retval=batadv_skb_head_push(skb, (skb->data - skb->mac_header) + hdr_len);
+ 	//} else {
+ 	//	skb_push(skb, hdr_len);
+ 	//}
++	if(retval < 0) {
++		WARN_ON(1);
++		goto	ERR;
++	}
+ #endif
+ 	skb_reset_mac_header(skb);
+ 	//skb_set_network_header(skb, ETH_HLEN);
+@@ -1143,9 +1152,12 @@
+ 	FASTBAT_DBG_MSG("[F@STBAT] wrap xmit(%s VS %s)!\n", skb->dev->name, bat->net_dev->name);
+ #endif
+ 	retval=dev_queue_xmit(skb);
++#if	(PUSH_THE_PACE == 1)
++		return	retval;
++#else
+ 	bat->last_seen=jiffies;			//update last_seen jiffies
+-
+ 	return	net_xmit_eval(retval);
++#endif
+ ERR:
+ 	FASTBAT_ERR_MSG(" wrap xmit failed code(%d)\n", retval);
+ 	return	retval;
+@@ -1167,16 +1179,18 @@
+ 	u16		h_proto=0;
+ 	struct batadv_unicast_packet	*u;
+ 
+-	/* check */
++#if	(PUSH_THE_PACE == 0)
++	/* check insane condition */
+ 	if(!local->output_dev->flags & IFF_UP)
+ 		goto	ERR;
++#endif
+ 	ethhdr=eth_hdr(skb);
+ 	if(ethhdr->h_proto == ETH_P_BATMAN) {
+ 		hdr_len=ETH_HLEN;
+ 	} else if(ethhdr->h_proto == ETH_P_8021Q) {
+ 		hdr_len=ETH_VLAN_HLEN;
+ 	} else {
+-		FASTBAT_ERR_MSG(" this protocol type isn't accepted!\n");
++		FASTBAT_ERR_MSG(" don't accept this protocol type!\n");
+ 		goto	ERR;
+ 	}
+ 	
+@@ -1197,6 +1211,9 @@
+ 	skb->dev=local->output_dev;
+ 	skb->protocol=htons(ethhdr->h_proto);
+ 	retval=dev_queue_xmit(skb);
++#if	(PUSH_THE_PACE == 0)
++	local->last_seen=jiffies;
++#endif
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] peel xmit(%d)!\n", retval);
+ 	return	retval;
+ 
+@@ -1219,12 +1236,14 @@
+ 	u8			priv_ttvn;
+ 	int			retval=0;
+ 
++#if	(PUSH_THE_PACE == 0)
+ 	/* if soft_iface is null, cannot alter packet's ttvn */
+ 	if(bat->soft_iface == NULL) {
+ 		FASTBAT_ERR_MSG(" Err! Null soft_iface!\n");
+ 		retval=-EEXIST;
+ 		return	retval;
+ 	}
++#endif
+ 	u=(struct batadv_unicast_packet *)dst;
+ 	/*if(u->packet_type && (bat->batman_type!=u->packet_type)) {
+ 		FASTBAT_DBG_RAW_MSG(" Err! conflict packet type(%d VS %d)!\n", 
+@@ -1326,7 +1345,9 @@
+ 	skb_push(skb, (skb->data - skb->mac_header));
+ 	skb_reset_mac_header(skb);
+ 	skb->dev=bat->net_dev;
++#if	(PUSH_THE_PACE == 0)
+ 	bat->last_seen=jiffies;
++#endif
+ 
+ 	retval=dev_queue_xmit(skb);
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] xmit(%d)!\n", retval);
+--- batman-adv-2018.3/net/batman-adv/fast_batman.h	2018-11-09 13:49:49.734487310 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.h	2018-11-09 14:25:21.814482806 +0800
+@@ -13,7 +13,7 @@
+ #include "hash.h"
+ 
+ #define FASTBAT_DBG			0			/* debug mode: [0..2] */
+-#define PUSH_THE_PACE		0			/* speed up */
++#define PUSH_THE_PACE		1			/* speed up */
+ //#define ETH_ALEN			6
+ #define FASTBAT_DIRTY_PURGE	3000		/* msec */
+ #define ETH_VLAN_HLEN		18

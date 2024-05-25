@@ -1,0 +1,35 @@
+#!/bin/sh
+File=$1
+
+zy1905_version=$2
+
+SAVE_DIR=$3
+
+echo "[get_online_info_by_URL] Download ($File) FWinfo by zy1905_version($zy1905_version)"
+/etc/zy1905/Output_log.sh "[get_online_info_by_URL] Download ($File) FWinfo by zy1905_version($zy1905_version)"
+
+#Run online check by RMS
+echo "[zy1905]Running FWupgradeTool......"
+installed=$(uci get system.main.install_mode)
+#Running FWupgradeTool only in installation flow completed.
+echo "Install mode: $installed"
+if [ "$installed" == "1" ]; then
+	/usr/sbin/FWupgradeTool -i 1 -y "$zy1905_version" -d "/tmp/zy1905/" -z "enable"
+fi
+
+#check run copy
+if [ "$SAVE_DIR" == "" ]; then
+	echo "[get_online_info_by_URL] Download FWinfo not to save"
+	/etc/zy1905/Output_log.sh "[get_online_info_by_URL] Download FWinfo not to save"
+	exit
+fi
+
+echo "Copy (/tmp/zy1905/$File) to ($SAVE_DIR)"
+
+#check file & copy to SAVE_DIR
+if [ -f "/tmp/zy1905/$File" ]; then
+	mkdir -p $SAVE_DIR
+	cp -p /tmp/zy1905/$File $SAVE_DIR
+fi
+
+exit

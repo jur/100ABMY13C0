@@ -1,0 +1,17 @@
+--- a/dhcp6c_script.c	2007-03-21 17:52:55.000000000 +0800
++++ b/dhcp6c_script.c	2018-10-19 14:03:23.763807100 +0800
+@@ -406,12 +406,12 @@
+ 		argv[0] = scriptpath;
+ 		argv[1] = NULL;
+ 
+-		if (safefile(scriptpath)) {
++		/*if (safefile(scriptpath)) {
+ 			dprintf(LOG_ERR, FNAME,
+ 			    "script \"%s\" cannot be executed safely",
+ 			    scriptpath);
+ 			exit(1);
+-		}
++		}*/
+ 
+ 		if (foreground == 0 && (fd = open("/dev/null", O_RDWR)) != -1) {
+ 			dup2(fd, STDIN_FILENO);

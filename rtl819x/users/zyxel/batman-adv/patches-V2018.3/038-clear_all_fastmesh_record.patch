@@ -1,0 +1,118 @@
+diff -uNr batman-adv-2018.3/net/batman-adv/fast_batman.c batman-adv-2018.3/net/batman-adv/fast_batman.c
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-09-18 11:05:17.973851330 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2019-09-27 11:05:54.922526055 +0800
+@@ -84,6 +84,7 @@
+ static void	fastbat_local_add_check_global_and_setup_dirty(u8 *);
+ void _fastbat_show_msg(u8 *, u8);
+ void fastbat_parser_msg(void *);
++void fastbat_clear_all(void);
+ 
+ /* sysctl variable to turn on/off fastbat dynamically */
+ extern int fastmesh_enable;
+@@ -1330,9 +1342,11 @@
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit (s)%pM (d)%pM\n", ethhdr->h_source, ethhdr->h_dest);
+ 	FASTBAT_DBG_MSG("[F@STBAT] wrap xmit(%s VS %s)!\n", skb->dev->name, bat->net_dev->name);
+ #endif
+-	if(show_fastmesh_msg) {
++#if	0
++	if(show_fastmesh_msg  == 1) {
+ 		fastbat_parser_msg((void *)skb->data);
+ 	}
++#endif
+ 	retval=dev_queue_xmit(skb);
+ #if	(PUSH_THE_PACE == 1)
+ 		return	retval;
+@@ -1396,11 +1410,11 @@
+ #if	0
+ 	fastbat_show_raw_data((void *)skb->data, 63);
+ #endif
+-
+-	if(show_fastmesh_msg) {
++#if	0
++	if(show_fastmesh_msg == 1) {
+ 		fastbat_parser_msg((void *)skb->data);
+ 	}
+-
++#endif
+ 	retval=dev_queue_xmit(skb);
+ #if	(PUSH_THE_PACE == 0)
+ 	local->last_seen=jiffies;
+@@ -1598,10 +1612,11 @@
+ #if	(PUSH_THE_PACE == 0)
+ 	bat->last_seen=jiffies;
+ #endif
+-
+-	if(show_fastmesh_msg) {
++#if	0
++	if(show_fastmesh_msg == 1) {
+ 		fastbat_parser_msg((void *)skb->data);
+ 	}
++#endif
+ 
+ 	retval=dev_queue_xmit(skb);
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] xmit(%d)!\n", retval);
+@@ -1963,3 +1978,27 @@
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] No local!\n");
+ }
+ 
++void	fastbat_clear_all
++(void)
++{
++	int 		idx=0;
++	int			dirty=0;
++	FAST_BAT	*bat;
++	FAST_LOCAL	*local;
++	
++	for(; idx<FAST_BAT_LIST_LEN; idx++) {
++		if(!hlist_empty(&bats[idx])) {
++			hlist_for_each_entry(bat, &bats[idx], list) {
++				bat->dirty=1;
++				dirty=1;
++			}
++		}
++	}
++	list_for_each_entry(local, &fastbat_local_head, list) {
++		local->dirty=1;
++		dirty=1;
++	}
++	if(dirty)
++		queue_delayed_work(batadv_event_workqueue, &fastbat_work, msecs_to_jiffies(FASTBAT_DIRTY_PURGE));
++}
++
+diff -uNr batman-adv-2018.3/net/batman-adv/routing.c batman-adv-2018.3/net/batman-adv/routing.c
+--- batman-adv-2018.3/net/batman-adv/routing.c	2019-09-18 11:05:18.017851330 +0800
++++ batman-adv-2018.3/net/batman-adv/routing.c	2019-09-27 13:51:46.698431148 +0800
+@@ -959,6 +959,7 @@
+ #if	defined(CONFIG_BATMAN_ADV_FASTBAT)
+ extern int fastmesh_enable;
+ extern int show_fastmesh_msg;
++extern void fastbat_clear_all(void);
+ #endif
+ 
+ /**
+@@ -982,7 +983,7 @@
+ 	bool is4addr, is_gw;
+ 
+ #if	defined(CONFIG_BATMAN_ADV_FASTBAT)
+-	if(fastmesh_enable) {
++	if(fastmesh_enable == 1) {
+ 		extern FAST_LOCAL *fastbat_local_search(u8 *);
+ 		extern struct ethhdr *fastbat_grab_real_ethhdr(struct sk_buff *);
+ 		extern int fastbat_xmit_peel(struct sk_buff *, FAST_LOCAL *);
+@@ -1036,12 +1037,16 @@
+ 				}
+ 			}
+ 		}
++	} else /*if(fastmesh_enable & 0x8) */{
++		fastbat_clear_all();
+ 	}
+ DONOTHING:
++#if	0
+ 	if(show_fastmesh_msg) {
+ 		printk(KERN_ERR "[B@TMAN] BACK 2 B@TMAN_ADV MODULE FROM batadv_recv_unicast_packet()!\n");
+ 	}
+ #endif
++#endif
+ 
+ 	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+ 	is4addr = unicast_packet->packet_type == BATADV_UNICAST_4ADDR;

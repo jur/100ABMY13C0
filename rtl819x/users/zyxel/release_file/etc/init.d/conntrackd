@@ -1,0 +1,42 @@
+#!/bin/sh
+
+PROG="/usr/sbin/conntrackd"
+CONNTRACKD_CONF="/etc/conntrackd/conntrackd.conf"
+
+boot() {
+  $PROG -C $CONNTRACKD_CONF &
+}
+
+start() {
+  $PROG -C $CONNTRACKD_CONF &
+}
+
+stop() {
+  prog_pid=`pidof conntrackd`
+  [ -n "$prog_pid" ] && killall "$prog_pid"
+}
+
+restart() {
+  stop
+  start
+}
+
+
+case "$1" in
+  "boot" )
+    boot
+    ;;
+  "start" )
+    start
+    ;;
+  "stop" )
+    stop
+    ;;
+  "restart" )
+    restart
+    ;;
+  "reload" )
+    restart
+    ;;
+esac
+

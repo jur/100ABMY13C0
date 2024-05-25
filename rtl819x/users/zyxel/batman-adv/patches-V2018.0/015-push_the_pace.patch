@@ -1,0 +1,31 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-30 12:30:37.876247169 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-05-29 14:30:43.744414461 +0800
+@@ -1151,9 +1151,11 @@
+ #endif
+ 	retval=dev_queue_xmit(skb);
+ #if		(PUSH_THE_PACE == 1)
++	return	retval;
++#else
+ 	bat->last_seen=jiffies;			//update last_seen jiffies
+-#endif
+ 	return	net_xmit_eval(retval);
++#endif
+ ERR:
+ 	FASTBAT_ERR_MSG(" wrap xmit failed code(%d)\n", retval);
+ 	return	retval;
+--- batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-05-30 12:30:37.820247169 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-05-28 10:48:58.700625082 +0800
+@@ -13,11 +13,11 @@
+ #include "hash.h"
+ 
+ #define FASTBAT_DBG			0			/* debug mode: [0..2] */
+-#define PUSH_THE_PACE		0			/* speed up */
++#define PUSH_THE_PACE		1			/* speed up */
+ //#define ETH_ALEN			6
+ #define FASTBAT_DIRTY_PURGE	3000		/* msec */
+ #define ETH_VLAN_HLEN		18
+-#define FAST_BAT_LIST_LEN	16
++#define FAST_BAT_LIST_LEN	8
+ 
+ typedef struct	fast_bat {
+ 	struct hlist_node	list;

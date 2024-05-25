@@ -1,0 +1,210 @@
+#!/bin/sh
+# This is migrating from WSQ50, there is a lot of attributes not existed in WSR30.
+# Now comment out for them.
+ZLOG_PATH="/tmp/zlog/tmp/ApplicationData/zlog/device.log"
+echo "**** LAN status ****"
+mode=$(flash get OP_MODE | awk -F "=" '{print$2}')
+if [ $mode == "0" ]; then
+	echo "    === Device mode is Router"
+	echo "    === WAN"
+  if [ "$(uci get network.wan.proto)" == "pppoe" ]; then
+      ifconfig ppp0
+  else
+      ifconfig eth1
+  fi
+  echo "    === iptables"
+  iptables -nvL
+  echo
+  echo
+  echo "    === iptables nat"
+  iptables -nvL -t nat
+elif [ $mode == "1" ]; then
+	isController=$(uci get system.main.operation_role)
+	if [ $isController == "controller" ]; then
+		echo "    === Device mode is Bridge mode(controller)"
+	else
+		echo "    === Device mode is AP"
+	fi
+else
+	echo "    === Device mode $mode is not AP nor Router"
+fi
+
+echo
+echo "    === LAN"
+ifconfig br0
+echo "    === dhcp.lease"
+cat /tmp/dhcp.leases
+echo
+echo "    === dhcp.lease2"
+cat /tmp/dhcp.leases2
+echo "    === dhcp_guest_lan1.leases"
+cat /tmp/dhcp_guest_lan1.leases
+echo "    === dhcp_guest_lan1.leases2"
+cat /tmp/dhcp_guest_lan1.leases2
+echo
+echo "    === Guest"
+ifconfig guest-lan
+
+echo "**** Bridge status ****"
+brctl show
+echo
+echo "**** WiFi status ****"
+for i in wlan0 wlan1 wlan2 wlan0-va0 wlan2-va0 wlan2-msh0 wlan1-msh0
+do
+	updown=$(ifconfig $i | grep UP | awk -F " " '{print $1}')
+	if [ $updown == "UP" ]; then
+		echo "    === $i is $updown ==="
+        cat /proc/$i/sta_info
+		echo
+	else
+		echo "    === $i is DOWN ==="
+	fi
+done
+
+echo
+echo "**** Routing table ****"
+route -n
+
+
+echo
+echo "**** DNS /tmp/resolv.conf ****"
+cat /tmp/resolv.conf
+
+
+echo
+echo "**** DNS /tmp/resolv.conf.auto ****"
+cat /tmp/resolv.conf.auto
+echo
+
+echo "**** zy1905 /tmp/zy1905.json****"
+cat /tmp/zy1905.json
+echo
+
+echo "**** wifi client 5G list****"
+cat /tmp/assoc_list.5g
+echo
+
+echo "**** wifi client 24G list****"
+cat /tmp/assoc_list.24g
+echo
+
+#echo "**** hyctl ****"
+#hyctl show
+#echo
+
+echo "**** Mesh association info ****"
+echo "    ===  WLAN1 5G ==="
+cat /proc/wlan1/mesh_assoc_mpinfo
+country=$(atsh | grep 'Default Country Code' | awk -F ": " '{print $2}')
+if [ "$country" == "E1" ]; then
+	# 5G low band backhaul
+	echo "    ===  WLAN0 5G ==="
+	cat /proc/wlan0/mesh_assoc_mpinfo
+	echo
+fi
+#echo "    ===  WLAN2 24G ==="
+#cat /proc/wlan2/mesh_assoc_mpinfo
+#echo
+
+echo "**** B.A.T.M.A.N ****"
+cat /tmp/batman_debug/batman_adv/bat0/neighbors
+echo
+
+echo "**** B.A.T.M.A.N transtable local ****"
+cat /tmp/batman_debug/batman_adv/bat0/transtable_local
+echo
+
+echo "**** B.A.T.M.A.N transtable global ****"
+cat /tmp/batman_debug/batman_adv/bat0/transtable_global
+echo
+
+echo "**** B.A.T.M.A.N transtable dat cache ****"
+cat /tmp/batman_debug/batman_adv/bat0/dat_cache
+echo
+
+echo "**** Fast bat ****"
+cat /tmp/batman_debug/batman_adv/bat0/bats
+echo
+
+echo "**** B.A.T.M.A.N Originator ****"
+cat /tmp/batman_debug/batman_adv/bat0/originators
+echo
+
+echo "**** LED ****"
+#cat /tmp/logs/led.log
+cat $ZLOG_PATH | awk '/LED control daemon/'
+echo
+
+echo "**** DFS event ****"
+cat $ZLOG_PATH | awk '/DFS/'
+echo
+
+echo "**** client event ****"
+cat $ZLOG_PATH | awk '/Client/'
+echo
+
+echo "**** Thermal wlan0 ****"
+cat /proc/wlan0/mib_rf | awk '/current thermal:/ {print $3}'
+echo
+
+echo "**** Thermal wlan1 ****"
+cat /proc/wlan1/mib_rf | awk '/current thermal:/ {print $3}'
+echo
+
+echo "**** Thermal wlan2 ****"
+cat /proc/wlan2/mib_rf | awk '/current thermal:/ {print $3}'
+echo
+
+echo "**** Backhaul log ****"
+#cat /tmp/log/backhaul_log
+cat $ZLOG_PATH| grep 'Connection'
+echo
+
+echo "**** Backhaul flow log ****"
+cat /tmp/log/backhaul_flow_log
+echo
+
+echo "**** CRT info ****"
+getCrtInfo
+echo
+
+echo "**** netstat info ****"
+netstat -lpn
+echo
+
+echo "**** free info ****"
+free
+echo
+
+echo "**** meminfo ****"
+cat /proc/meminfo
+echo
+
+echo "**** uptime ****"
+uptime
+echo
+
+echo "**** buddyinfo ****"
+cat /proc/buddyinfo
+echo
+
+echo "**** Time zone ****"
+cat /etc/TZ
+echo
+
+echo "**** atsh info ****"
+atsh
+echo
+
+echo "**** slab info ****"
+cat /proc/slabinfo
+echo
+
+echo "**** process info ****"
+top -b -n 1
+echo
+
+echo "**** port state ****"
+portspeed a
+echo
+

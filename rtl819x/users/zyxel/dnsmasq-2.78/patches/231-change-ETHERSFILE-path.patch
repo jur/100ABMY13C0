@@ -1,0 +1,12 @@
+--- a/src/config.h	2017-11-28 10:13:27.228041887 +0800
++++ b/src/config.h	2017-11-28 10:14:17.628041250 +0800
+@@ -40,7 +40,8 @@
+ #define SMALLDNAME 50 /* most domain names are smaller than this */
+ #define CNAME_CHAIN 10 /* chains longer than this atr dropped for loop protection */
+ #define HOSTSFILE "/etc/hosts"
+-#define ETHERSFILE "/etc/ethers"
++//#define ETHERSFILE "/etc/ethers"
++#define ETHERSFILE "/config/ethers"
+ #define DEFLEASE 3600 /* default lease time, 1 hour */
+ #define CHUSER "nobody"
+ #define CHGRP "dip"

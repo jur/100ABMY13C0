@@ -1,0 +1,22 @@
+#!/bin/sh
+
+help() {
+	echo "Usage: update_batman_gw_mode [router|bridge|ap]"
+}
+
+case $1 in
+    router)
+		echo 'server' > /sys/class/net/bat0/mesh/gw_mode
+		;;
+    bridge)
+		echo 'off' > /sys/class/net/bat0/mesh/gw_mode
+		;;
+	ap)
+		echo 'client' > /sys/class/net/bat0/mesh/gw_mode
+		;;
+	*)
+		help
+		;;
+esac
+exit 0
+

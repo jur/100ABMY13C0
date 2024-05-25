@@ -1,0 +1,20 @@
+#!/bin/sh
+
+echo "----Reload default and Reboot----"
+# cloud agent do unpair
+/usr/sbin/do_unpair.sh &
+echo "do_unpair in back ground"
+
+sleep 3
+
+flash reset
+if [ -d "/config" ]; then
+	rm -rf /config/* 2>/dev/null
+fi
+if [ -d "/tmp/ApplicationData" ]; then
+	rm -rf /tmp/ApplicationData/* 2>/dev/null
+fi
+
+sleep 3
+
+reboot -f

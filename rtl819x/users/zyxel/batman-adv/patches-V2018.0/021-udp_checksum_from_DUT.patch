@@ -1,0 +1,11 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-07-04 14:47:58.477841763 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-07-04 13:29:22.685851725 +0800
+@@ -1326,7 +1326,7 @@
+ 	/* just handle tcp over ipv4 */
+ 	if(ethhdr->h_proto == ETH_P_IP) {
+ 		iphdr=(struct iphdr *)((u8 *)skb->data);
+-		if(iphdr->protocol == IPPROTO_TCP) {
++		if((iphdr->protocol==IPPROTO_TCP) || (iphdr->protocol==IPPROTO_UDP)) {
+ #if	0//debug
+ 			FASTBAT_DBG_RAW_MSG("[F@STBAT] L2:\n");
+ 			fastbat_show_raw_data((void *)ethhdr, 49);

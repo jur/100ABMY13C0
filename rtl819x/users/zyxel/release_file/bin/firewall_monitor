@@ -1,0 +1,62 @@
+#!/bin/sh
+
+filename="/tmp/firewall_info"
+filenametmp="/tmp/firewall_tmp"
+
+rm -f $filenametmp
+rm -f $filename
+
+#--------------------------------------------------------------
+#  get firewall data
+#--------------------------------------------------------------
+FIREWALL_ENABLE=`uci get firewall.general.rules_count`
+#echo "FIREWALL_ENABLE="$FIREWALL_ENABLE
+
+if [ $FIREWALL_ENABLE -eq 0 ]; then
+	exit
+fi
+
+RULE_NAME="rule"
+for sitenu in $(seq 1 $FIREWALL_ENABLE)
+do
+	SRC_MAC=`uci get firewall.$RULE_NAME$sitenu.mac_address`
+	#echo "SRC_MAC = "$SRC_MAC
+
+	SAME_MAC=0
+	if [ -f $filenametmp ]; then
+		while read check; do
+			#echo "check = "$check
+			MAC=${check:0:17}
+			if [ "$MAC" == "$SRC_MAC" ]; then
+				#echo "find...."
+				SAME_MAC=1
+				
+			fi
+		done < $filenametmp
+	fi
+	#echo $SRC_MAC","$SAME_MAC
+	echo $SRC_MAC","$SAME_MAC >> $filenametmp
+done
+
+#--------------------------------------------------------------
+#  check same mac data
+#--------------------------------------------------------------
+
+if [ ! -f $filenametmp ]; then
+	exit
+fi
+
+while read check_line1; do
+    #echo $check_line1
+	MAC=${check_line1:0:17}
+	same=`expr substr "$check_line1" 19 1`
+	#echo "MAC  = "$MAC
+	#echo "same = "$same
+
+	if [ "$same" == "0" ]; then
+		#echo $filename "=" $MAC $DEVICE_ENABLE
+		echo $MAC >> $filename
+	fi
+done < $filenametmp
+
+rm -f $filenametmp

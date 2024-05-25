@@ -1,0 +1,2 @@
+kernel/arch/mips/bsp/usb.ko
+kernel/arch/mips/bsp/i2c.ko

@@ -1,0 +1,59 @@
+
+config interface loopback
+	option ifname	lo
+	option status	1
+	option proto	static
+	option ipaddr	127.0.0.1
+	option netmask	255.0.0.0
+
+config interface br0
+	option ifname   'eth0 eth1'
+	option type 	bridge
+	option proto	static
+	option ipaddr	192.168.212.5
+	option netmask	255.255.255.0
+	option status   1
+	option stp	0
+	option dns1	ISP,
+	option dns2	ISP,
+	option dns3	ISP,
+	option eth0_mode "auto"
+
+config interface wan
+	option ifname   eth1
+	option iface    eth1
+	option IP_version Dual_Stack
+	option proto    dhcp
+	option hostname WSR30
+	option dns1	ISP,
+	option dns2	ISP,
+	option dns3	ISP,
+	option dnsv6_1	ISP,
+	option dnsv6_2	ISP,
+	option dnsv6_3	ISP,
+	option mtu      1500
+	option dhcp_mtu	1500
+	option pptp_mtu 1492
+	option pppoe_mtu 1492
+	option demand   300
+	option pppoeNailedup 1
+	option wan_mac_status 0
+	option ipv6 1
+	option v6_proto 'dhcp'
+	option ip6addr '::'
+	option ip6gw '::'
+	option prefixlen '48'
+
+config network general
+	option auto_ip_change         '1'
+	option backup_lan_ip          '192.168.212.1'
+	option backup_lan_mask        '255.255.255.0'
+	option backup_lan_gw          ''
+	option backup_aplan_ip        '192.168.1.2'
+	option backup_aplan_mask      '255.255.255.0'
+	option backup_aplan_gw        ''
+	option linkLocalOnly          '0'
+	option wan6rd_enable          '0'
+	option wan6to4_enable         '0'
+	option wan6in4_enable         '0'
+

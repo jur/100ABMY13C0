@@ -1,0 +1,61 @@
+--- net/batman-adv/bat_algo.c	2017-12-05 14:33:26.207842511 +0800
++++ net/batman-adv/bat_algo.c	2017-12-05 14:33:43.679623521 +0800
+@@ -33,7 +33,7 @@
+ #include "bat_algo.h"
+ #include "netlink.h"
+ 
+-char batadv_routing_algo[20] = "BATMAN_IV";
++char batadv_routing_algo[20] = "BATMAN_V";
+ static struct hlist_head batadv_algo_list;
+ 
+ /**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

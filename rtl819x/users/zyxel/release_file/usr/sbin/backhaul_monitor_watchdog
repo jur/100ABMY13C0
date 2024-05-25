@@ -1,0 +1,8 @@
+#!/bin/sh
+
+pid=$(ps | pgrep 'backhaul_monitor')
+
+if [ -z $pid ]; then
+	echo "Restart backhaul_monitor...."
+	/etc/init.d/backhaul_monitor start
+fi

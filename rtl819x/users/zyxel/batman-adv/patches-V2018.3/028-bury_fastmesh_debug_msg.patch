@@ -1,0 +1,132 @@
+diff -uNr batman-adv-2018.3/net/batman-adv/fast_batman.c batman-adv-2018.3/net/batman-adv/fast_batman.c
+--- batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-12-21 09:19:05.039208484 +0800
++++ batman-adv-2018.3/net/batman-adv/fast_batman.c	2018-12-24 13:44:12.259455232 +0800
+@@ -78,6 +78,8 @@
+ static void	fastbat_del_local_entry(FAST_LOCAL *);
+ static void	fastbat_show_local_entry(void);
+ static void	fastbat_local_add_check_global_and_setup_dirty(u8 *);
++void _fastbat_show_msg(u8 *, u8);
++void fastbat_parser_msg(void *);
+ 
+ /* sysctl variable to turn on/off fastbat dynamically */
+ extern int fastmesh_enable;
+@@ -85,6 +87,7 @@
+ extern struct workqueue_struct *batadv_event_workqueue;
+ extern struct delayed_work fastbat_work;
+ extern FASTMESH __fastmesh_priv;
++extern int show_fastmesh_msg;
+ 
+ /* input: src/dst mac
+  *
+@@ -248,6 +251,23 @@
+ #define xxxfastbat_show_raw_data(...)
+ #endif
+ 
++/* for debug release image */
++void    _fastbat_show_msg
++(u8 *begin, 
++ u8 len)
++{
++	u8	idx=0;
++	for(idx=0 ;idx<len; idx+=16) {
++		printk(KERN_ERR "<%x> %x %x %x %x %x %x %x %x   %x %x %x %x %x %x %x %x\n",
++			begin, *begin, *(begin+1), *(begin+2), *(begin+3), 
++			*(begin+4), *(begin+5), *(begin+6), *(begin+7), 
++			*(begin+8), *(begin+9), *(begin+10), *(begin+11), 
++			*(begin+12), *(begin+13), *(begin+14), *(begin+15));
++		begin += 16;
++	}
++	printk(KERN_ERR "\n");
++}
++
+ /* TODO: double vlan
+  * 
+  * peel outgoing skb to grab src and dst addr and search jhash index 
+@@ -1153,6 +1175,33 @@
+ 	return	retval;
+ }
+ 
++/* parser batman pkt and dump critical informaiton for debug
++ * TODO: vlan
++ */
++void		fastbat_parser_msg
++(void *pkt)
++{
++	char	*tmp=(char *)pkt;
++	u16		*h_proto=(u16 *)(pkt+12);
++	u8		*type=(u8 *)(pkt+ETH_HLEN);
++	u8		*dump, 
++			len=0;
++
++	if(*h_proto == 0x4305) {
++		if(*type == 0x40)		//unicast
++			len=10+ETH_HLEN;
++		else if(*type == 0x01)	//broadcast
++			len=14+ETH_HLEN;
++		else {
++			_fastbat_show_msg((u8 *)pkt, 48);
++			return;
++		}
++		FASTBAT_ERR_MSG("[F@STBAT] DSET:%pM SRC:%pM\n", (u8 *)pkt, (u8 *)pkt+6);
++		_fastbat_show_msg((u8 *)(pkt+len), 16);
++	} else
++		_fastbat_show_msg((u8 *)pkt, 48);
++}
++
+ /* TODO: double vlan
+  * wrap skb in vlan/batman header and then xmit
+  */
+@@ -1260,6 +1309,9 @@
+ 	FASTBAT_DBG_RAW_MSG("[F@STBAT] wrap xmit (s)%pM (d)%pM\n", ethhdr->h_source, ethhdr->h_dest);
+ 	FASTBAT_DBG_MSG("[F@STBAT] wrap xmit(%s VS %s)!\n", skb->dev->name, bat->net_dev->name);
+ #endif
++	if(show_fastmesh_msg) {
++		fastbat_parser_msg((void *)skb->data);
++	}
+ 	retval=dev_queue_xmit(skb);
+ #if	(PUSH_THE_PACE == 1)
+ 		return	retval;
+@@ -1323,6 +1375,11 @@
+ #if	0
+ 	fastbat_show_raw_data((void *)skb->data, 63);
+ #endif
++
++	if(show_fastmesh_msg) {
++		fastbat_parser_msg((void *)skb->data);
++	}
++
+ 	retval=dev_queue_xmit(skb);
+ #if	(PUSH_THE_PACE == 0)
+ 	local->last_seen=jiffies;
+@@ -1521,6 +1578,10 @@
+ 	bat->last_seen=jiffies;
+ #endif
+ 
++	if(show_fastmesh_msg) {
++		fastbat_parser_msg((void *)skb->data);
++	}
++
+ 	retval=dev_queue_xmit(skb);
+ 	xxxFASTBAT_DBG_RAW_MSG("[F@STBAT] xmit(%d)!\n", retval);
+ 	return	retval;//net_xmit_eval(retval);
+diff -uNr batman-adv-2018.3/net/batman-adv/routing.c batman-adv-2018.3/net/batman-adv/routing.c
+--- batman-adv-2018.3/net/batman-adv/routing.c	2018-12-21 09:19:05.023208484 +0800
++++ batman-adv-2018.3/net/batman-adv/routing.c	2018-12-24 11:11:49.339279849 +0800
+@@ -958,6 +958,7 @@
+ 
+ #if	defined(CONFIG_BATMAN_ADV_FASTBAT)
+ extern int fastmesh_enable;
++extern int show_fastmesh_msg;
+ #endif
+ 
+ /**
+@@ -1037,6 +1038,9 @@
+ 		}
+ 	}
+ DONOTHING:
++	if(show_fastmesh_msg) {
++		printk(KERN_ERR "[B@TMAN] BACK 2 B@TMAN_ADV MODULE FROM batadv_recv_unicast_packet()!\n");
++	}
+ #endif
+ 
+ 	unicast_packet = (struct batadv_unicast_packet *)skb->data;

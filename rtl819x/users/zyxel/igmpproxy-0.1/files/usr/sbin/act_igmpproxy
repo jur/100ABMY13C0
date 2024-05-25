@@ -1,0 +1,55 @@
+#!/bin/sh
+
+local CONF_FILE=/tmp/igmpproxy.conf
+local IGMP_OPTS="-d -v -v"
+
+## force IGMP version to v2
+echo "2" > /proc/sys/net/ipv4/conf/eth1/force_igmp_version
+echo "2" > /proc/sys/net/ipv4/conf/br0/force_igmp_version
+
+local proto=`uci get network.wan.proto`
+local igmpEnabled=`uci get igmpproxy.general.igmpEnabled`
+
+if [ "$proto" == "pppoe" ] || [ "$proto" == "pptp" ];then
+	local WAN="ppp0"
+	local DISABLED_IF=`uci get network.wan.ifname`
+else
+	local WAN=`uci get network.wan.ifname`
+	local DISABLED_IF="'$proto'-wan"
+fi
+
+local igmp_exist=$(pidof igmpproxy-0.1)
+
+if [ "$igmpEnabled" = "1" ]; then
+	[ -n "$igmp_exist" ] && kill -9 "$igmp_exist"
+	
+	echo "##------------------------------------------------------"  > $CONF_FILE
+	echo "## Enable Quickleave mode (Sends Leave instantly)" >> $CONF_FILE
+	echo "##------------------------------------------------------" >> $CONF_FILE
+	echo "quickleave" >> $CONF_FILE
+
+	echo "##------------------------------------------------------" >> $CONF_FILE
+	echo "## Configuration for eth1 (Upstream Interface)"  >> $CONF_FILE
+	echo "##------------------------------------------------------" >> $CONF_FILE
+	echo "phyint $WAN upstream  ratelimit 0  threshold 1" >> $CONF_FILE
+	echo "altnet 0.0.0.0/0" >> $CONF_FILE
+
+	echo "##------------------------------------------------------"  >> $CONF_FILE
+	echo "## Configuration for eth0 (Downstream Interface)" >> $CONF_FILE
+	echo "##------------------------------------------------------" >> $CONF_FILE
+	echo "phyint br0 downstream  ratelimit 0  threshold 1" >> $CONF_FILE
+
+	echo "##------------------------------------------------------" >> $CONF_FILE
+	echo "## Configuration for eth0 (Disabled Interface)" >> $CONF_FILE
+	echo "##------------------------------------------------------" >> $CONF_FILE
+	echo "phyint $DISABLED_IF disabled" >> $CONF_FILE
+		
+	/usr/bin/igmpproxy-0.1 /tmp/igmpproxy.conf -v &
+elif [ "$igmpEnabled" = "0" ]; then
+	[ -n "$igmp_exist" ] && kill -9 "$igmp_exist"	
+fi
+
+[ -f "/var/WAN_trigger_flag" ] || {
+	## iptables app reorder (need to bypass multicast stream on DoS)
+	/usr/sbin/iptables_app_order 2> /dev/null
+}

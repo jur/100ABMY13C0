@@ -1,0 +1,31 @@
+#!/bin/sh
+
+GETMIB="flash get"
+eval `$GETMIB OP_MODE`
+
+##check mode, if it is router mode, that exits.
+[ "$OP_MODE" == "0" ] && exit 0
+
+local lan_proto=`uci get network.br0.proto`
+
+if [ "$lan_proto" == "dhcp" ]; then
+	local iface_name
+	local udhcpc_command
+	local lan_ifname=`uci get network.br0.ifname`
+	
+	if [ "$lan_ifname" == "eth0 eth1" ]; then
+		# Checking udhcpc for eth1 is existed or not, if yes, kill the process and left br0 interface only.
+		udhcpc_eth1_pid=$(ps | grep '[u]dhcpc -i eth1' | awk '{print $1}')
+		if [ -n "$udhcpc_eth1_pid" ]; then
+			kill $udhcpc_eth1_pid
+		fi
+		local iface_name="br0"
+		ifconfig $iface_name 0.0.0.0
+		udhcpc_command="-i br0 -b -p /var/udhcpc/udhcpc-$iface_name.pid -s /usr/share/udhcpc/$iface_name.sh -q"
+	fi
+
+	local udhcpc_PID=$(ps | grep "udhcpc" | grep "/var/udhcpc/udhcpc-$iface_name.pid" | grep 'grep' -v | awk '{print $1}')
+	[ -z "$udhcpc_PID" ] && {
+		udhcpc $udhcpc_command &
+	}
+fi

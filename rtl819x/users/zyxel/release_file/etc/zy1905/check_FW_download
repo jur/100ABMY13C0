@@ -1,0 +1,68 @@
+#!/bin/sh
+
+FILE=/tmp/rootfs
+RESULT_FILE=/tmp/get_online_fw
+TIMEOUT=$1
+TIME=0
+TO_FWUPGRADE=$2
+
+RemoveWget() {
+	ps | grep wget | grep grep -v | awk '{print $1}' > /tmp/zy1905_FWdownload
+
+	filename=/tmp/zy1905_FWdownload
+	while read -r line
+	do
+		number=$line
+		kill -9 $number
+	done < "$filename"
+
+	rm -f /tmp/zy1905_FWdownload
+}
+
+while [ "$TIME" -lt "$TIMEOUT" ]
+do
+	if [ ! -f $RESULT_FILE ]; then
+		TIME=$(( TIME + 5 ))
+		echo "TIME="$TIME
+		sleep 5
+	else
+		echo "RESULT_FILE exist"
+		Result=`cat $RESULT_FILE`
+		if [ "$Result" == "success" ]; then
+			/usr/sbin/zy1905App 11 3 &
+			echo "Result="$Result
+			sleep 3
+
+			echo "TO_FWUPGRADE="$TO_FWUPGRADE
+			if [ "$TO_FWUPGRADE" == "1" ]; then
+				/bin/FWupgradelog.sh "[zy1905 check_FW_download] Download success, to run FWupgrade"
+				/etc/zy1905/Output_log.sh "[zy1905 check_FW_download] Download success, to run FWupgrade"
+				echo "zy1905App 11 4 &"
+				/usr/sbin/zy1905App 11 4 &
+			fi
+		else
+			/bin/FWupgradelog.sh "[zy1905 check_FW_download] FW download failed"
+			/etc/zy1905/Output_log.sh "[zy1905 check_FW_download] FW download failed"
+			echo "zy1905App 11 0 &"
+			/usr/sbin/zy1905App 11 0 &
+			echo "Result="$Result
+			RemoveWget
+			rm -f $FILE
+			rm -f $RESULT_FILE
+		fi
+		exit
+	fi
+done
+
+echo "check_FW_down time out"
+/bin/FWupgradelog.sh "[zy1905 check_FW_download] FW download time out($TIME)"
+/etc/zy1905/Output_log.sh "[zy1905 check_FW_download] FW download time out($TIME)"
+
+echo "zy1905App 11 0 &"
+/usr/sbin/zy1905App 11 0 &
+RemoveWget
+
+rm -f $FILE
+rm -f $RESULT_FILE
+
+exit

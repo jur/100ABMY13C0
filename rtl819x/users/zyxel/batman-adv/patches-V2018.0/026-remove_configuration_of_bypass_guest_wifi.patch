@@ -1,0 +1,11 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-08-30 15:55:02.095429952 +0800
++++ batman-adv-2018.0.mod/net/batman-adv/fast_batman.h	2018-08-30 12:22:25.543456899 +0800
+@@ -25,7 +25,7 @@
+ #define FAST_BAT_LOCAL_LEN_MAX	512
+ 
+ #define COLLECT_ORIG_OR_NEIGH
+-#define BYPASS_GUEST_LAN
++//#define BYPASS_GUEST_LAN
+ 
+ typedef struct	fastmesh_priv {
+ 	struct batadv_priv	*batman_priv;	/* so far, just support one batman iface */

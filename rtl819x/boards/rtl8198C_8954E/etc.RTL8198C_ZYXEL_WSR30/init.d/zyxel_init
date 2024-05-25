@@ -1,0 +1,317 @@
+#!/bin/sh
+
+GETMIB="flash get"
+SET_TIME="/var/system/set_time"
+REINIT_FILE="/var/reinit"
+PROC_BR_IGMPPROXY="/proc/br_igmpProxy"
+HW_NAT_FILE="/proc/hw_nat"
+PROC_BR_IGMPVERSION="/proc/br_igmpVersion"
+PROC_BR_IGMPSNOOP="/proc/br_igmpsnoop"
+LAN_IFACE="eth0"
+WAN_IFACE="eth1"
+ZYXEL_FTP_SERVER="ftp://ftp2.zyxel.com/WSR30/firmware"
+ZYXEL_FTP_SITE="/config/ZYXEL_FTP_SITE"
+ZYXEL_RMS_FW_INFO="/config/latest_firmware_info.conf"
+ZYXEL_RMS_EXTENDER_INFO="/config/extender_info_list.conf"
+SYSLOG_PATH="/tmp/syslog"
+
+FW_VERSION="/tmp/firmware_version"
+eval `$GETMIB OP_MODE`
+
+check_network_config(){
+uci_linkLocalOnly=$(uci get network.general.linkLocalOnly 2> /dev/null)
+[ -z "$uci_linkLocalOnly" ] && uci set network.general.linkLocalOnly=0
+#uci set network.general.linkLocalOnly=0
+
+uci_wan6rd_enable=$(uci get network.general.wan6rd_enable 2> /dev/null)
+[ -z "$uci_wan6rd_enable" ] && uci set network.general.wan6rd_enable=0
+
+uci_wan6to4_enable=$(uci get network.general.wan6to4_enable 2> /dev/null)
+[ -z "$uci_wan6to4_enable" ] && uci set network.general.wan6to4_enable=0
+
+uci_wan6in4_enable=$(uci get network.general.wan6in4_enable 2> /dev/null)
+[ -z "$uci_wan6in4_enable" ] && uci set network.general.wan6in4_enable=0
+
+uci_ip6addr=$(uci get network.wan.ip6addr 2> /dev/null)
+[ -z "$uci_ip6addr" ] && uci set network.wan.ip6addr=::
+
+uci_ip6gw=$(uci get network.wan.ip6gw 2> /dev/null)
+[ -z "$uci_ip6gw" ] && uci set network.wan.ip6gw=::
+
+uci_prefixlen=$(uci get network.wan.prefixlen 2> /dev/null)
+[ -z "$uci_prefixlen" ] && uci set network.wan.prefixlen=48
+
+uci_wan_dnsv6_1=$(uci get network.wan.dnsv6_1 2> /dev/null)
+[ -z "$uci_wan_dnsv6_1" ] && uci set network.wan.dnsv6_1='ISP,'
+
+uci_wan_dnsv6_2=$(uci get network.wan.dnsv6_2 2> /dev/null)
+[ -z "$uci_wan_dnsv6_2" ] && uci set network.wan.dnsv6_2='ISP,'
+
+uci_wan_dnsv6_3=$(uci get network.wan.dnsv6_3 2> /dev/null)
+[ -z "$uci_wan_dnsv6_3" ] && uci set network.wan.dnsv6_3='ISP,'
+
+uci_wan_eth_mtu=$(uci get network.wan.eth_mtu 2> /dev/null)
+[ -z "$uci_wan_eth_mtu" ] && uci set network.wan.eth_mtu='1500'
+
+uci commit network
+sync
+}
+
+boot(){
+	echo "### zyxel_init boot ###" > /dev/console
+
+	if [ ! -f $SET_TIME ]; then
+		flash settime
+	fi
+
+	if [ ! -d $SYSLOG_PATH ]; then
+		mkdir $SYSLOG_PATH
+	fi
+	syslogd -L -s 32 -b 8 -O $SYSLOG_PATH/system_log
+
+	echo /bin/mdev > /proc/sys/kernel/hotplug
+	mount -t sysfs sysfs /sys
+	echo 1 > /sys/class/firmware/timeout
+	#Mount devpts
+	mount -t devpts devpts /dev/pts
+
+	echo 0 > $PROC_BR_IGMPPROXY
+
+	#local linkLocalOnly=$(uci get network.general.linkLocalOnly 2> /dev/null)
+	check_network_config
+
+        local uci_wan_iface=$(uci get network.wan.iface 2> /dev/null)
+        [ -z "$uci_wan_iface" ] && {
+           local wan_proto=$(uci get network.wan.proto)
+           if [ "$wan_proto" == "pppoe" ]; then
+             uci set network.wan.iface=ppp0
+           else
+             uci set network.wan.iface=eth1
+           fi
+        }
+
+	if [ "$OP_MODE" == "0" ]; then
+		echo 0 > /proc/sys/net/ipv6/conf/eth1/disable_ipv6
+		echo 0 > /proc/sys/net/ipv6/conf/br0/disable_ipv6
+		echo 2 > /proc/sys/net/ipv6/conf/default/accept_ra
+		echo 2 > /proc/sys/net/ipv6/conf/eth1/accept_ra
+		/etc/init.d/RA_status start
+		echo 1 > $HW_NAT_FILE
+	else
+		echo 2 > $HW_NAT_FILE
+	fi
+
+	ifconfig eth1 down
+	ifconfig peth0 down
+
+	eval `$GETMIB HW_NIC0_ADDR`
+	ifconfig $LAN_IFACE hw ether $HW_NIC0_ADDR
+	eval `$GETMIB HW_NIC1_ADDR`
+	ifconfig $WAN_IFACE hw ether $HW_NIC1_ADDR
+
+	setbridge
+
+	iptables -F
+	iptables -F -t nat
+	iptables -A INPUT -j ACCEPT
+
+	# set kthreadd high priority for performance
+	renice -20 2
+	# set ksoftirqd high priority for performance
+	renice -20 3
+
+	if [ ! -f "/var/run/lld2d-br0.pid" ] && [ "$OP_MODE" != "1" ]; then
+		lld2d br0
+	fi
+
+	# enable igmp snooping
+	echo 2 > $PROC_BR_IGMPVERSION
+	echo 1 > $PROC_BR_IGMPSNOOP
+
+	# reply only if the target IP address is local address configured on the incoming interface
+	echo 1 > /proc/sys/net/ipv4/conf/eth1/arp_ignore
+	# increase routing cache rebuild count from 4 to 2048
+	echo 2048 > /proc/sys/net/ipv4/rt_cache_rebuild_count
+
+	setRpsRfs
+	setConntrackParm
+	#For changing country code from EU to RU
+	setCountryCode
+
+	#Checking current_setting.bin backup file, if the file is not existed and file is OK, create a copy
+	installed=$(uci get system.main.install_mode)
+	if [ "$installed" == "1" ]; then
+		if [ ! -f "/config/current_setting.bin.bak" ]; then
+			eval `$GETMIB WLAN1_MODE`
+			if [ "$WLAN1_MODE" != "0" ]; then
+				cp /config/current_setting.bin /config/current_setting.bin.bak
+				echo "#### Backup current_setting config"
+			fi
+		fi
+	fi
+
+	/sbin/zyxel_batmanSetup boot
+
+	chk_FWupgrade_setting
+
+	if [ ! -f "$ZYXEL_FTP_SITE" ]; then
+ 	       echo "$ZYXEL_FTP_SERVER" > "$ZYXEL_FTP_SITE"
+	fi
+
+	if [ ! -f "$ZYXEL_RMS_FW_INFO" ]; then
+		echo "/v1/mycloud" > "$ZYXEL_RMS_FW_INFO"
+		echo "latest_firmware_info" >> "$ZYXEL_RMS_FW_INFO"
+	fi
+	
+	if [ ! -f "$ZYXEL_RMS_EXTENDER_INFO" ]; then
+		echo "/v1/mycloud" > "$ZYXEL_RMS_EXTENDER_INFO"
+		echo "extender_info_list" >> "$ZYXEL_RMS_EXTENDER_INFO"
+	fi
+
+	if [ ! -f "$FW_VERSION" ]; then
+            atsh | awk '/Version/{print $4}' >"$FW_VERSION"
+    fi
+    
+	if [ ! -f $REINIT_FILE ]; then
+		echo 1 > $REINIT_FILE
+	fi
+
+	#Create atsh.info
+	atsh > /tmp/atsh.info
+
+	local System_install_mode=$(uci get system.main.install_mode)
+	[ "$System_install_mode" == "1" ] && /usr/sbin/znet_setroot
+}
+
+start(){
+	if [ ! -f $REINIT_FILE ]; then
+		boot
+		exit
+	fi
+	echo "### zyxel_init start ###" > /dev/console
+
+	echo 0 > $PROC_BR_IGMPPROXY
+
+	if [ "$OP_MODE" == "0" ]; then
+		echo 0 > /proc/sys/net/ipv6/conf/eth1/disable_ipv6
+		echo 0 > /proc/sys/net/ipv6/conf/br0/disable_ipv6
+		echo 2 > /proc/sys/net/ipv6/conf/eth1/accept_ra
+		echo 2 > /proc/sys/net/ipv6/conf/default/accept_ra
+		echo 1 > $HW_NAT_FILE
+	else
+		echo 2 > $HW_NAT_FILE
+	fi
+
+	setbridge
+
+	iptables -F
+	iptables -F -t nat
+	iptables -A INPUT -j ACCEPT
+
+	# set kthreadd high priority for performance
+	renice -20 2
+	# set ksoftirqd high priority for performance
+	renice -20 3
+
+	if [ -f "/var/run/lld2d-br0.pid" ]; then
+		lld2d_pid=$(cat /var/run/lld2d-br0.pid)
+		kill -9 $lld2d_pid
+		rm /var/run/lld2d-br0.pid
+	fi
+	if [ ! -f "/var/run/lld2d-br0.pid" ] && [ "$OP_MODE" != "1" ]; then
+		lld2d br0
+	fi
+
+	# enable igmp snooping
+	echo 2 > $PROC_BR_IGMPVERSION
+	echo 1 > $PROC_BR_IGMPSNOOP
+
+	# reply only if the target IP address is local address configured on the incoming interface
+	echo 1 > /proc/sys/net/ipv4/conf/eth1/arp_ignore
+	# increase routing cache rebuild count from 4 to 2048
+	echo 2048 > /proc/sys/net/ipv4/rt_cache_rebuild_count
+
+	setRpsRfs
+	/sbin/zyxel_batmanSetup boot
+
+	local System_install_mode=$(uci get system.main.install_mode)
+	[ "$System_install_mode" == "1" ] && /usr/sbin/znet_setroot
+}
+
+setRpsRfs(){
+	echo 2 > /sys/class/net/eth0/queues/rx-0/rps_cpus
+	echo 2 > /sys/class/net/eth1/queues/rx-0/rps_cpus
+	echo 2 > /sys/class/net/wlan0/queues/rx-0/rps_cpus
+	echo 2 > /sys/class/net/wlan1/queues/rx-0/rps_cpus
+	echo 2 > /sys/class/net/wlan2/queues/rx-0/rps_cpus
+
+	echo 0 > /sys/class/net/eth0/queues/rx-0/rps_flow_cnt
+	echo 0 > /sys/class/net/eth1/queues/rx-0/rps_flow_cnt
+	echo 0 > /sys/class/net/wlan0/queues/rx-0/rps_flow_cnt
+	echo 0 > /sys/class/net/wlan1/queues/rx-0/rps_flow_cnt
+	echo 0 > /sys/class/net/wlan2/queues/rx-0/rps_flow_cnt
+	echo 0 > /proc/sys/net/core/rps_sock_flow_entries
+}
+
+setbridge(){
+	chk_br0=$(brctl show | grep br0)
+	if [ -z $chk_br0 ]; then
+		brctl addbr br0
+		eval `$GETMIB HW_NIC0_ADDR`
+		ifconfig br0 hw ether $HW_NIC0_ADDR
+	fi
+	
+	brctl addif br0 $LAN_IFACE
+	if [ "$OP_MODE" == "1" ]; then
+		brctl addif br0 $WAN_IFACE
+	else
+		brctl delif br0 $WAN_IFACE
+	fi
+}
+
+setConntrackParm(){
+	#Adjust the conntrack timeout value.
+	echo 3600 > /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_established
+	echo 600 > /proc/sys/net/netfilter/nf_conntrack_generic_timeout
+	echo 120 > /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_time_wait
+}
+
+chk_FWupgrade_setting() {
+    CHECK_APPNotification=$(cat /etc/FWupgradeTool/FWupgrade_setting | grep APPNotification_Enable | awk '{print $2}')
+    if [ "$CHECK_APPNotification" == "1" ] && [ ! -f /config/APPNotification_Enable ]; then
+        uci set notification.firmware.enable=1
+        uci commit notification
+        echo "1" > /config/APPNotification_Enable
+    fi
+}
+
+setCountryCode() {
+    #default country code, getting from hw flash setting
+    eval `$GETMIB HW_WLAN2_REG_DOMAIN`
+    countryCode=$(uci get wireless.wlan1.countryCode 2> /dev/null)
+    if [ "$HW_WLAN2_REG_DOMAIN" == "3" ]; then
+        if [ "$countryCode" == "" ] || [ "$countryCode" != "CH" ] && [ "$countryCode" != "RU" ]; then
+            echo "DUT is for EU, default country code is CH (Switzerland)" > /dev/console
+            uci set wireless.wlan0.countryCode='CH'
+            uci set wireless.wlan1.countryCode='CH'
+            uci set wireless.wlan2.countryCode='CH'
+        fi
+    elif [ "$HW_WLAN2_REG_DOMAIN" == "1" ]; then
+        if [ "$countryCode" == "" ] || [ "$countryCode" != "US" ]; then
+            echo "DUT is for US, default country code is US (FCC)" > /dev/console
+            uci set wireless.wlan0.countryCode='US'
+            uci set wireless.wlan1.countryCode='US'
+            uci set wireless.wlan2.countryCode='US'
+        fi
+    fi
+}
+
+case $1 in
+	boot)
+		boot
+	;;
+	start)
+	 	start
+	;;
+esac
+exit 0

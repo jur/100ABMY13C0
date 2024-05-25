@@ -1,0 +1,121 @@
+--- batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-07-30 15:17:17.889092676 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.c	2018-07-30 15:32:29.289090751 +0800
+@@ -459,6 +459,7 @@
+ 	atomic_inc(&__fastmesh_priv.local_count);
+ 	memcpy(local->dst, ethhdr->h_dest, ETH_ALEN);
+ 	local->last_seen=jiffies;
++	local->iif=skb->skb_iif;
+ 	local->output_dev=out;
+ #if		defined(BYPASS_GUEST_LAN)
+ 	if(vlan)
+@@ -672,12 +673,12 @@
+ 	}
+ 	bat->last_seen=jiffies;
+ 	//bat->dirty=0;
+-	//bat->count=0;
++	bat->iif=skb->skb_iif;		/* store input dev idx */
+ 	ether_addr_copy(bat->src, ethhdr->h_source);
+ 	ether_addr_copy(bat->dst, ethhdr->h_dest);
+ #if		defined(BYPASS_GUEST_LAN)
+ 	if(ethhdr->h_proto == ETH_P_8021Q) {
+-		bat->vlan=2;	/* 2:vlan is among real ethernet II (vlan inside guest lan) */
++		bat->vlan=2;			/* 2:vlan is among real ethernet II (vlan inside guest lan) */
+ 		vhdr=(struct vlan_ethhdr *)ethhdr;
+ 		bat->vlan_data.h_vlan_TCI=vhdr->h_vlan_TCI;
+ 		bat->vlan_data.h_vlan_encapsulated_proto=vhdr->h_vlan_encapsulated_proto;
+@@ -1001,6 +1002,22 @@
+ 		} */else {
+ 			FASTBAT_DBG_MSG(" Err! No batman header!\n");
+ 		}
++	} else if(is_broadcast_ether_addr(ethhdr->h_dest) && (ethhdr->h_proto==ETH_P_IP)) {
++		/* find out dhcp request packet */
++		u8	*check;
++		FAST_LOCAL	*local;
++		check=(u8 *)ethhdr + 14 + 20;
++		/* len of ethernet II + ipv4 header: 14 + 2o
++		 * source/dest port: 68/67
++		 */
++		if((*(check+1)==0x44) && (*(check+3)==0x43)) { 
++			/* check if local's exist */
++			local=fastbat_local_search(ethhdr->h_source);
++			if(local) {
++				FASTBAT_DBG_RAW_MSG("[B@TMAN] DHCP REQUEST!!!\n");
++				fastbat_del_local_entry(local);
++			}
++		}
+ 	}
+ 	if(pass)
+ 		goto	RETN;
+@@ -1828,9 +1845,25 @@
+ 	return	0;
+ }
+ 
+-void	fastbat_update_batman_counters
+-()
++/* if client change from eth0 to eth1 or from main wifi to guest wifi
++ * delete local entry to keep consistency
++ */
++void	fastbat_update_arrival_dev
++(FAST_BAT *global, 
++ int iif)
+ {
++	FAST_LOCAL	*local;
++	/* update global dev idx from skb_iif */
++	global->iif=iif;
+ 
++	/* delete local entry */
++	list_for_each_entry(local, &fastbat_local_head, list) {
++		if(!memcmp(global->src, local->dst, ETH_ALEN)) {
++			FASTBAT_DBG_RAW_MSG("[F@STBAT] arrival dev idx changed (%pM)\n", global->src);
++			fastbat_del_local_entry(local);
++			return;
++		}
++	}
++	FASTBAT_DBG_RAW_MSG("[F@STBAT] No local!\n");
+ }
+ 
+--- batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-07-30 15:17:17.865092676 +0800
++++ batman-adv-2018.0/net/batman-adv/fast_batman.h	2018-07-30 15:29:16.981091157 +0800
+@@ -48,7 +48,7 @@
+ 	u8	orig[ETH_ALEN];
+ 	u8	dirty;
+ 	unsigned long	last_seen;			//time of last handle
+-	u32	count;
++	int	iif;							//skb_iif
+ 	struct net_device	*soft_iface;	//batman iface
+ 	struct net_device	*net_dev;		//output iface
+ 	u8	vlan;							// [0/1] => [yes/no]
+@@ -67,6 +67,7 @@
+ 	unsigned long	last_seen;
+ 	u8	dirty;
+ 	u8	vlan;							//vlan is on or not
++	int	iif;							//skb_iif
+ 	struct net_device	*output_dev;
+ }FAST_LOCAL;
+ 
+--- batman-adv-2018.0/net/batman-adv/main.c	2018-07-30 15:17:17.865092676 +0800
++++ batman-adv-2018.0/net/batman-adv/main.c	2018-07-26 15:23:36.905821932 +0800
+@@ -150,6 +150,7 @@
+ 	FAST_LOCAL (*fastbat_local_search)(u8 *dest);
+ 	int (*fastbat_chk_and_add_local_entry)(struct sk_buff *, struct net_device *);
+ 	void (*fastbat_reset_header)(void *);
++	void (*fastbat_update_arrival_dev)(FAST_BAT *, int);
+ };
+ LIST_HEAD(fastbat_local_head);
+ struct delayed_work	fastbat_work;
+@@ -164,6 +165,7 @@
+ extern int fastbat_chk_and_add_local_entry(struct sk_buff *, struct net_device *);
+ extern void fastbat_purge_dirty_entry(void *);
+ extern void fastbat_reset_header(void *);
++extern void fastbat_update_arrival_dev(FAST_BAT *, int);
+ #endif
+ 
+ /**
+@@ -233,6 +235,7 @@
+ 			_br_fastbat_ops.fastbat_local_search=fastbat_local_search;
+ 			_br_fastbat_ops.fastbat_chk_and_add_local_entry=fastbat_chk_and_add_local_entry;
+ 			_br_fastbat_ops.fastbat_reset_header=fastbat_reset_header;
++			_br_fastbat_ops.fastbat_update_arrival_dev=fastbat_update_arrival_dev;
+ 		} else {
+ 			printk(KERN_ERR "[F@STBAT] Cannot insert F@STBAT callback func!!!\n");
+ 		}

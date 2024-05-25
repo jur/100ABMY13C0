@@ -1,0 +1,87 @@
+#!/bin/sh
+GETMIB="flash get"
+
+eval `$GETMIB OP_MODE`
+SYSTEM_MODE=$(uci get system.main.system_mode)
+BRIDGE_TO_AP_FLAG=$(cat /tmp/bridge_to_ap)
+AP_TO_BRIDGE_FLAG=$(cat /tmp/ap_to_bridge)
+pidof udhcpc
+if [ "$OP_MODE" = "0" ]; then
+	uci set network.br0.proto=static
+	uci set network.br0.ifname=eth0
+	if [ "$SYSTEM_MODE" = "2" ]; then
+		lan_ip=$(uci get network.br0.ipaddr)
+		lan_mask=$(uci get network.br0.netmask)
+		lan_gw=$(uci get network.br0.gateway)
+		old_lan_ip=$(uci get network.general.backup_lan_ip)
+		old_lan_mask=$(uci get network.general.backup_lan_mask)
+		old_lan_gw=$(uci get network.general.backup_lan_gw)
+		uci set network.general.backup_aplan_ip=$lan_ip
+		uci set network.general.backup_aplan_mask=$lan_mask
+		uci set network.general.backup_aplan_gw=$lan_gw
+		uci set network.br0.ipaddr=$old_lan_ip
+		uci set network.br0.netmask=$old_lan_mask
+		uci set network.br0.gateway=$old_lan_gw
+		uci set system.main.system_mode=1
+		uci commit system
+	fi
+	uci commit network
+	/etc/init.d/zyxel_init start
+elif [ "$OP_MODE" = "1" ]; then
+	OPERATION_ROLE=$(uci get system.main.operation_role)
+	if [ "$OPERATION_ROLE" = "controllee" ]; then
+		uci set network.br0.proto=dhcp
+		uci set network.br0.ifname='eth0 eth1'
+	elif [ "$OPERATION_ROLE" = "controller" ]; then
+		uci set network.br0.proto=dhcp
+		uci set network.br0.ifname='eth0 eth1'
+		if [ "$SYSTEM_MODE" = "1" ]; then
+			lan_ip=$(uci get network.br0.ipaddr)
+			lan_mask=$(uci get network.br0.netmask)
+			lan_gw=$(uci get network.br0.gateway)
+			old_aplan_ip=$(uci get network.general.backup_aplan_ip)
+			old_aplan_mask=$(uci get network.general.backup_aplan_mask)
+			old_aplan_gw=$(uci get network.general.backup_aplan_gw)
+			uci set network.general.backup_lan_ip=$lan_ip
+			uci set network.general.backup_lan_mask=$lan_mask
+			uci set network.general.backup_lan_gw=$lan_gw
+			uci set network.br0.ipaddr=$old_aplan_ip
+			uci set network.br0.netmask=$old_aplan_mask
+			uci set network.br0.gateway.=$old_aplan_gw
+			uci set system.main.system_mode=2
+			uci commit system
+		fi
+	fi
+	uci commit network
+	/etc/init.d/zyxel_init start
+	/usr/sbin/zyxel_switch_port lan reset
+	/usr/sbin/zyxel_switch_port wan reset 
+fi
+# reboot DUT when set bridge to NAT
+if [ "$BRIDGE_TO_AP_FLAG" = "1" ]; then
+  # send reboot command to extender
+	if [ -f /tmp/ApplicationData/Approvelist ]; then
+	    [ -f /tmp/reboot_ext.sh ] && {
+		rm /tmp/reboot_ext.sh
+	    }
+	    cat /tmp/ApplicationData/Approvelist | awk -f /usr/sbin/reboot_ext.awk
+	    [ -f /tmp/reboot_ext.sh ] && {
+		/tmp/reboot_ext.sh
+	    }
+	fi
+	/sbin/zyxel_led_ctrl Reboot &
+	sleep 3
+	reboot
+else
+	if [ "$AP_TO_BRIDGE_FLAG" == 1 ]; then
+	#Notify extender restart network/wireless interfaces
+		zy1905App 42 00:00:00:00:00:00 1
+		rm /tmp/ap_to_bridge
+	fi
+	#/etc/init.d/zyxel_bridgeSetup boot #Move to zyxel_init run , change name zyxel_batmanSetup.
+	/etc/init.d/network restart
+	#Remove duplicated wireless stop command because wireless start command would stop it in prior
+	#/etc/init.d/wireless stop
+	/etc/init.d/wireless start
+	/sbin/zyxel_set_opmode
+fi

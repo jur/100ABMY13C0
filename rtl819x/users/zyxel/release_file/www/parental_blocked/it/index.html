@@ -1,0 +1,108 @@
+﻿<!DOCTYPE html>
+<html>
+<title>Multy U</title>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+* {
+    box-sizing: border-box;
+}
+.row::after {
+    content: "";
+    clear: both;
+    display: block;
+}
+[class*="col-"] {
+    float: left;
+    padding: 15px;
+}
+html {
+    background-color: #f2f2f2;
+    font-family: "Lucida Sans", sans-serif;
+}
+.hidden {
+    display: none;
+}
+.header {
+    color: #ffffff;
+    padding: 15px;
+}
+.menu ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+.menu li {
+    padding: 8px;
+    margin-bottom: 7px;
+}
+.menu li:hover {
+
+}
+.aside {
+    padding: 15px;
+    color: #ffffff;
+    text-align: center;
+    font-size: 14px;
+}
+.footer {
+    color: #ffffff;
+    text-align: center;
+    font-size: 12px;
+    padding: 15px;
+}
+/* For desktop: */
+.col-1 {width: 8.33%;}
+.col-2 {width: 16.66%;}
+.col-3 {width: 25%;}
+.col-4 {width: 33.33%;}
+.col-5 {width: 41.66%;}
+.col-6 {width: 50%;}
+.col-7 {width: 58.33%;}
+.col-8 {width: 66.66%;}
+.col-9 {width: 75%;}
+.col-10 {width: 83.33%;}
+.col-11 {width: 91.66%;}
+.col-12 {width: 100%;}
+
+@media only screen and (max-width: 768px) {
+    /* For mobile phones: */
+    [class*="col-"] {
+        width: 100%;
+    }
+}
+</style>
+</head>
+<body>
+<div class="header">
+   &nbsp;
+</div>
+
+<div class="row">
+
+<div class="col-3 menu">
+   &nbsp;
+</div>
+
+<div class="col-6">
+  <h1><img src="../multy.png" width="50%"><img src="../shield.png" width="15%"></h1>
+
+  <p>Il Parental Control di Multy è attivo, Internet è bloccato. Se credi si tratti di un errore, chiedi ai all’amministratore di sbloccarti.</p>
+
+  <p><a href="../en/index.html">English</a> | <a href="../es/index.html">Español</a> | <a href="../de/index.html">Deutsch</a> | <a href="../fr/index.html">Français</a> | Italiano | <a href="../zh/index.html">中文</a></p>
+</div>
+
+<div class="col-3 right">
+  <div class="aside">
+     &nbsp;
+  </div>
+</div>
+
+</div>
+
+<div class="footer">
+  &nbsp;
+</div>
+
+</body>
+</html>

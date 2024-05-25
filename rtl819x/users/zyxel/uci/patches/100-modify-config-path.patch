@@ -1,0 +1,73 @@
+--- a/uci.h	2012-12-28 01:34:28.000000000 +0800
++++ b/uci.h	2017-10-03 10:05:59.356702638 +0800
+@@ -35,7 +35,7 @@
+ #include <stdio.h>
+ #include <stdint.h>
+ 
+-#define UCI_CONFDIR "/etc/config"
++#define UCI_CONFDIR "/config/uci"
+ #define UCI_SAVEDIR "/tmp/.uci"
+ #define UCI_DIRMODE 0700
+ #define UCI_FILEMODE 0600
+
+--- a/cli.c	2012-12-28 01:34:28.000000000 +0800
++++ b/cli.c	2017-10-03 10:05:41.128320577 +0800
+@@ -144,7 +144,7 @@
+ 		"\treorder    <config>.<section>=<position>\n"
+ 		"\n"
+ 		"Options:\n"
+-		"\t-c <path>  set the search path for config files (default: /etc/config)\n"
++		"\t-c <path>  set the search path for config files (default: /config/uci)\n"
+ 		"\t-d <str>   set the delimiter for list values in uci show\n"
+ 		"\t-f <file>  use <file> as input instead of stdin\n"
+ 		"\t-L         do not load any plugins\n"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

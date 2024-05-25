@@ -1,0 +1,47 @@
+#!/bin/sh
+
+help() {
+    echo "bandwidth monitor control script"
+    echo "Usage     bwm <Behavior>"
+    echo "Behavior: <start> <stop> <restart>"
+}
+
+start() {
+    eval `flash get OP_MODE`
+    operation_role=$(uci get system.main.operation_role)
+    if [ "$OP_MODE" == "0" ]; then
+        wan_ifname=$(uci get network.wan.ifname)
+        /usr/bin/bwm -i $wan_ifname -t 2 &
+    elif [ "$OP_MODE" == "1" ] && [ "$operation_role" == "controller" ]; then
+        /usr/bin/bwm -i br0 -t 2 &
+    fi
+}
+
+stop() {
+	pidbwm=$(ps | grep '/usr/bin/bwm' | grep -v 'grep' | awk '{print $1}')
+	if [ "$pidbwm" != "" ]; then
+		kill -15 $pidbwm
+	fi
+}
+
+restart() {
+    stop
+    start
+}
+
+case $1 in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        restart
+        ;;
+    *)
+        help
+        exit 1
+        ;;
+esac
+exit 0

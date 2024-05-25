@@ -1,0 +1,44 @@
+#!/bin/sh
+
+help()
+{
+    echo "Zyxel WanPort_monitor control script"
+    echo "Usage     wanport_monitor <Behavior>"
+    echo "Behavior: <start> <stop> <restart>"
+}
+
+start()
+{
+    /usr/sbin/WanPort_monitor &
+}
+
+stop()
+{
+    WanPortMonitorPid=$(pidof WanPort_monitor)
+    if [ -n "$WanPortMonitorPid" ]; then
+        killall WanPort_monitor
+    fi
+}
+
+restart()
+{
+    stop
+    start
+}
+
+case $1 in
+    start)
+        start
+    ;;
+    stop)
+        stop
+    ;;
+    restart)
+        restart
+    ;;
+    *)
+        help
+        exit 1
+    ;;
+esac
+exit 0
